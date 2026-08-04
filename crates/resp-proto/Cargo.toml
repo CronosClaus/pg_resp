@@ -1,0 +1,16 @@
+[package]
+name = "resp-proto"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "resp_proto"
+path = "src/lib.rs"
+
+[dependencies]
+
+[dev-dependencies]
+
+[features]
+# Enables pub(crate) internals for the fuzz target crate to reach into.
+fuzzing = []
