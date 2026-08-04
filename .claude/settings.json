@@ -1,0 +1,25 @@
+{
+  "model": "sonnet",
+  "env": {
+    "CLAUDE_CODE_SUBAGENT_MODEL": "haiku"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(cargo:*)",
+      "Bash(rustup:*)",
+      "Bash(git:*)",
+      "Bash(make:*)",
+      "Bash(docker:*)",
+      "Bash(psql:*)",
+      "Bash(pg_ctl:*)",
+      "Bash(initdb:*)",
+      "Bash(redis-cli:*)",
+      "Bash(memtier_benchmark:*)",
+      "Bash(bash scripts/clone-refs.sh)"
+    ],
+    "deny": [
+      "Bash(git push:*)",
+      "Read(./.env)"
+    ]
+  }
+}

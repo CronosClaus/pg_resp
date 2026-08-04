@@ -1,0 +1,7 @@
+/ref/
+/target/
+Cargo.lock.orig
+*.profraw
+.venv/
+node_modules/
+.DS_Store
