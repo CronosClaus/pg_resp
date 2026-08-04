@@ -1,11 +1,14 @@
+use mio::net::{TcpListener as MioTcpListener, TcpStream as MioTcpStream};
+use mio::{Events, Interest, Poll, Token};
 use pgrx::bgworkers::*;
 use pgrx::guc::{GucContext, GucFlags, GucRegistry, GucSetting};
 use pgrx::prelude::*;
 use resp_proto::{parse_command, ParseOutcome};
 use resp_store::Store;
+use std::collections::HashMap;
 use std::ffi::CString;
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::TcpListener;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
@@ -22,7 +25,17 @@ mod dispatch;
 // command execution, no locks on the hot path). Per pgrx-patterns skill
 // §8.7 (Phase 0's kill-9 finding): dispatch must never panic — a panic here
 // takes down the whole Postgres instance, not just this connection.
-const POLL_INTERVAL: Duration = Duration::from_millis(20);
+//
+// Uses mio (bible §3.2 names it explicitly) for readiness-based I/O rather
+// than S1's fixed-interval sleep-and-poll: the first working version of
+// this loop reused S1's 20ms-sleep pattern directly and measured a ~20ms
+// GET p50 (133x over the 150µs gate) — the sleep interval was adding its
+// full duration to every request's latency, not just shutdown latency, since
+// the thread was never blocked *on the sockets themselves*. `Poll::poll`'s
+// timeout only bounds how long the loop can go with zero I/O activity before
+// re-checking the shutdown flag; real traffic wakes it immediately.
+const SHUTDOWN_CHECK_INTERVAL: Duration = Duration::from_millis(100);
+const LISTENER_TOKEN: Token = Token(0);
 const READ_CHUNK: usize = 16 * 1024;
 
 static BIND_ADDRESS: GucSetting<Option<CString>> =
@@ -107,33 +120,84 @@ pub extern "C-unwind" fn background_worker_main(_arg: pg_sys::Datum) {
 }
 
 struct Conn {
-    stream: TcpStream,
+    stream: MioTcpStream,
     read_buf: Vec<u8>,
     write_buf: Vec<u8>,
 }
 
 fn server_loop(listener: TcpListener, shutdown: Arc<AtomicBool>) {
     let mut store = Store::new();
-    let mut conns: Vec<Conn> = Vec::new();
+    let mut mio_listener = MioTcpListener::from_std(listener);
+
+    let mut poll = match Poll::new() {
+        Ok(p) => p,
+        Err(e) => {
+            log!("pg_resp: mio::Poll::new failed: {e}, exiting server thread");
+            return;
+        }
+    };
+    if let Err(e) =
+        poll.registry()
+            .register(&mut mio_listener, LISTENER_TOKEN, Interest::READABLE)
+    {
+        log!("pg_resp: failed to register listener with poll: {e}, exiting server thread");
+        return;
+    }
+
+    let mut events = Events::with_capacity(1024);
+    let mut conns: HashMap<Token, Conn> = HashMap::new();
+    let mut next_token: usize = 1; // Token(0) is reserved for the listener
 
     while !shutdown.load(Ordering::SeqCst) {
-        match listener.accept() {
-            Ok((stream, _addr)) => {
-                if stream.set_nonblocking(true).is_ok() {
-                    conns.push(Conn {
-                        stream,
-                        read_buf: Vec::new(),
-                        write_buf: Vec::new(),
-                    });
-                }
+        if let Err(e) = poll.poll(&mut events, Some(SHUTDOWN_CHECK_INTERVAL)) {
+            if e.kind() != std::io::ErrorKind::Interrupted {
+                log!("pg_resp: poll error: {e}");
             }
-            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
-            Err(e) => log!("pg_resp: accept error: {e}"),
+            continue;
         }
 
-        conns.retain_mut(|conn| service_connection(conn, &mut store));
-
-        std::thread::sleep(POLL_INTERVAL);
+        for event in events.iter() {
+            if event.token() == LISTENER_TOKEN {
+                loop {
+                    match mio_listener.accept() {
+                        Ok((mut stream, _addr)) => {
+                            let token = Token(next_token);
+                            next_token += 1;
+                            if poll
+                                .registry()
+                                .register(&mut stream, token, Interest::READABLE)
+                                .is_ok()
+                            {
+                                conns.insert(
+                                    token,
+                                    Conn {
+                                        stream,
+                                        read_buf: Vec::new(),
+                                        write_buf: Vec::new(),
+                                    },
+                                );
+                            }
+                        }
+                        Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
+                        Err(e) => {
+                            log!("pg_resp: accept error: {e}");
+                            break;
+                        }
+                    }
+                }
+            } else {
+                let token = event.token();
+                let keep = match conns.get_mut(&token) {
+                    Some(conn) => service_connection(conn, &mut store),
+                    None => false,
+                };
+                if !keep {
+                    if let Some(mut conn) = conns.remove(&token) {
+                        let _ = poll.registry().deregister(&mut conn.stream);
+                    }
+                }
+            }
+        }
     }
 }
 
