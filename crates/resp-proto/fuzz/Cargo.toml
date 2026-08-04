@@ -1,0 +1,25 @@
+[workspace]
+# Standalone workspace: keeps fuzzing's lockfile/target dir independent of
+# the main resp-proto/pg_resp workspace, per cargo-fuzz convention.
+
+[package]
+name = "resp-proto-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.resp-proto]
+path = ".."
+
+[[bin]]
+name = "parse_command"
+path = "fuzz_targets/parse_command.rs"
+test = false
+doc = false
+bench = false
