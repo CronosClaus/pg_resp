@@ -1,0 +1,69 @@
+# Dockerized 5-client compat matrix (bible §5 Phase 1 gate). UNTESTED — no
+# docker in this environment; see README.md in this directory for exact
+# per-client verification status. `docker compose up --build --abort-on-container-exit`
+# from this directory once docker is available.
+services:
+  pg_resp:
+    build:
+      context: ../..
+      dockerfile: docker/pg_resp.Dockerfile
+    environment:
+      POSTGRES_PASSWORD: pg_resp_test
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  redis-cli:
+    image: redis:7
+    depends_on:
+      pg_resp:
+        condition: service_healthy
+    volumes:
+      - ./redis_cli:/scripts:ro
+    entrypoint: ["bash", "/scripts/test_t0.sh", "pg_resp", "6379"]
+
+  redis-py:
+    image: python:3-slim
+    depends_on:
+      pg_resp:
+        condition: service_healthy
+    volumes:
+      - ./redis_py:/scripts:ro
+    entrypoint: ["sh", "-c", "pip install --quiet redis && python3 /scripts/test_t0.py pg_resp 6379"]
+
+  node-redis:
+    image: node:20-slim
+    depends_on:
+      pg_resp:
+        condition: service_healthy
+    volumes:
+      - ./node_redis:/scripts:ro
+    working_dir: /scripts
+    entrypoint: ["sh", "-c", "npm install --silent redis && node test_t0.js pg_resp 6379"]
+
+  go-redis:
+    image: golang:1.22
+    depends_on:
+      pg_resp:
+        condition: service_healthy
+    volumes:
+      - ./go_redis:/scripts:ro
+    working_dir: /scripts
+    entrypoint: ["sh", "-c", "go mod download && go run main.go pg_resp 6379"]
+
+  jedis:
+    image: maven:3-eclipse-temurin-21
+    depends_on:
+      pg_resp:
+        condition: service_healthy
+    volumes:
+      - ./jedis:/scripts:ro
+    working_dir: /scripts
+    entrypoint:
+      ["sh", "-c", "mvn -q dependency:get -Dartifact=redis.clients:jedis:5.1.0 && \
+        javac -cp $(find /root/.m2 -name 'jedis-5.1.0.jar'):. Test.java && \
+        java -cp $(find /root/.m2 -name 'jedis-5.1.0.jar'):. Test pg_resp 6379"]

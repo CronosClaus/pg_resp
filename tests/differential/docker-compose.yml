@@ -1,0 +1,36 @@
+# Valkey differential oracle (bible §5 Phase 1 gate, §9). UNTESTED — no
+# docker in this environment. See README.md in this directory for exact
+# status. `docker compose run --build runner` from this directory once
+# docker is available.
+services:
+  pg_resp:
+    build:
+      context: ../..
+      dockerfile: docker/pg_resp.Dockerfile
+    environment:
+      POSTGRES_PASSWORD: pg_resp_test
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  valkey:
+    image: valkey/valkey:8
+    command: ["valkey-server", "--save", "", "--appendonly", "no"]
+
+  runner:
+    image: python:3-slim
+    depends_on:
+      pg_resp:
+        condition: service_healthy
+      valkey:
+        condition: service_started
+    volumes:
+      - .:/scripts:ro
+    working_dir: /scripts
+    entrypoint:
+      ["python3", "generate_and_compare.py",
+       "--candidate-host", "pg_resp", "--candidate-port", "6379",
+       "--oracle-host", "valkey", "--oracle-port", "6379",
+       "--seed", "42", "--commands", "5000"]
