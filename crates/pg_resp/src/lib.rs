@@ -1,8 +1,9 @@
 use pgrx::bgworkers::*;
+use pgrx::callbacks::{register_xact_callback, PgXactCallbackEvent};
 use pgrx::prelude::*;
 use std::io::{Read, Write};
-use std::net::TcpListener;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::net::{TcpListener, TcpStream};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -106,4 +107,42 @@ fn server_loop(listener: TcpListener, shutdown: Arc<AtomicBool>) {
 
         std::thread::sleep(POLL_INTERVAL);
     }
+}
+
+// Phase 0 spike S2 — loopback RESP call + commit-vs-rollback xact callback.
+// Bible §3.3: SQL-initiated mutations must queue transaction-locally and apply
+// only on commit, never on abort. `register_xact_callback` fires exactly one
+// of Commit/Abort per transaction (mutually exclusive, per pgrx/src/callbacks.rs)
+// so registering only a Commit callback is sufficient to prove both halves: on
+// commit the counter increments, on rollback the same call site never fires.
+//
+// These run inside a normal SQL backend process (a separate OS process per
+// connection, not our bgworker's threads), so calling PG FFI / SPI here is
+// unrelated to the bgworker main-thread-only rule above — completely different
+// process context.
+static SPIKE_COMMIT_COUNT: AtomicI64 = AtomicI64::new(0);
+
+#[pg_extern]
+fn resp_spike_queue_bump() {
+    register_xact_callback(PgXactCallbackEvent::Commit, || {
+        SPIKE_COMMIT_COUNT.fetch_add(1, Ordering::SeqCst);
+    });
+}
+
+#[pg_extern]
+fn resp_spike_counter() -> i64 {
+    SPIKE_COMMIT_COUNT.load(Ordering::SeqCst)
+}
+
+/// Loopback RESP call per bible §3.3's SQL-surface design: connect to our own
+/// bgworker's TCP port from a backend process and round-trip a command.
+#[pg_extern]
+fn resp_spike_loopback_ping() -> String {
+    let mut stream = TcpStream::connect(SPIKE_PORT).expect("loopback connect failed");
+    stream
+        .write_all(b"PING\r\n")
+        .expect("loopback write failed");
+    let mut buf = [0u8; 64];
+    let n = stream.read(&mut buf).expect("loopback read failed");
+    String::from_utf8_lossy(&buf[..n]).trim().to_string()
 }
