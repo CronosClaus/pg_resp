@@ -6,6 +6,64 @@ fn t0() -> Instant {
 }
 
 #[test]
+fn eviction_kicks_in_when_over_budget() {
+    // Small enough budget that a handful of entries must trigger eviction.
+    let mut s = Store::with_max_memory(PER_ENTRY_OVERHEAD_BYTES * 3);
+    let now = t0();
+    for i in 0..10 {
+        s.set(
+            now,
+            format!("k{i}").as_bytes(),
+            b"v".to_vec(),
+            Expiry::None,
+            Condition::None,
+            false,
+        );
+    }
+    assert!(s.len() < 10, "eviction should have kept the store under 10 entries");
+    assert!(s.used_bytes() <= PER_ENTRY_OVERHEAD_BYTES * 4, "should stay near budget + one entry");
+}
+
+#[test]
+fn eviction_never_evicts_the_key_just_written() {
+    let mut s = Store::with_max_memory(PER_ENTRY_OVERHEAD_BYTES); // room for ~1 entry
+    let now = t0();
+    for i in 0..5 {
+        s.set(
+            now,
+            format!("k{i}").as_bytes(),
+            b"v".to_vec(),
+            Expiry::None,
+            Condition::None,
+            false,
+        );
+        // the key just written must always still be readable immediately after
+        assert_eq!(s.get(now, format!("k{i}").as_bytes()), Some(&b"v"[..]));
+    }
+}
+
+#[test]
+fn active_expire_sweep_removes_expired_and_leaves_live_keys() {
+    let mut s = Store::new();
+    let now = t0();
+    s.set(
+        now,
+        b"expiring",
+        b"v".to_vec(),
+        Expiry::At(now + Duration::from_millis(10)),
+        Condition::None,
+        false,
+    );
+    s.set(now, b"forever", b"v".to_vec(), Expiry::None, Condition::None, false);
+
+    let later = now + Duration::from_millis(50);
+    let removed = s.active_expire_sweep(later, 20);
+    assert_eq!(removed, 1);
+    assert_eq!(s.len(), 1);
+    assert_eq!(s.get(later, b"forever"), Some(&b"v"[..]));
+}
+
+#[test]
 fn get_missing_returns_none() {
     let mut s = Store::new();
     assert_eq!(s.get(t0(), b"k"), None);

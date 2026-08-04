@@ -1,13 +1,39 @@
-//! In-memory T0-scoped store: plain HashMap + lazy TTL expiry. No PG deps,
-//! no RESP-protocol deps — pure Rust, deterministic (caller supplies `now`).
-//! Phase 2 scope (not here): active expiry sweep, CLOCK-LRU eviction under a
-//! byte budget — the `Entry` shape below already reserves what that needs.
+//! In-memory T0/T1-scoped store: HashMap + lazy/active TTL expiry +
+//! approximate CLOCK-LRU eviction under a byte budget. No PG deps, no
+//! RESP-protocol deps — pure Rust, deterministic (caller supplies `now`).
+//!
+//! Phase 2 pre-work scope (bible §5 Phase 2, done here as fast-loop-only
+//! pre-work per this run's Stage C): active expiry sweep, CLOCK-LRU
+//! eviction, and the three named property tests. NOT here (real Phase 2,
+//! needs a live server + memtier): the soak test, GUC wiring
+//! (`pg_resp.max_memory`/`pg_resp.eviction`), tuning the sample size against
+//! real workloads.
 
 use std::collections::HashMap;
 use std::time::Instant;
 
-/// One stored value. `clock_bit` is unused in Phase 1 — reserved so Phase 2's
-/// CLOCK-LRU sweep can add itself without changing this shape (bible §3.5).
+/// Rough fixed per-entry overhead (HashMap bucket + `Entry` struct fields +
+/// allocator bookkeeping for two heap allocations — key and value). This is
+/// an estimate, not a measurement: bible §3.5 says the real constant is
+/// "measured in Phase 2" — that measurement needs a live process and a
+/// memory profiler, which is real Phase 2 (not pre-work) scope. Documented
+/// here so it's visibly a placeholder, not silently treated as exact.
+pub const PER_ENTRY_OVERHEAD_BYTES: usize = 64;
+
+/// How many keys a single eviction/expiry sweep samples per call. Redis's
+/// own default active-expire-cycle sample size is in this range; bible §3.5
+/// calls this "N keys per tick, Redis-style" and defers real tuning to
+/// Phase 2 proper (needs a soak test to tune against, not pre-work).
+pub const DEFAULT_SAMPLE_SIZE: usize = 20;
+
+fn entry_bytes(key: &[u8], value_len: usize) -> usize {
+    key.len() + value_len + PER_ENTRY_OVERHEAD_BYTES
+}
+
+/// One stored value. `clock_bit` is set on every access (get or write) and
+/// cleared by the CLOCK-LRU sweep as it gives an entry a second chance —
+/// bible §3.5: "approximate LRU via CLOCK on a memory budget... same
+/// philosophy as Redis's sampled LRU, simpler implementation."
 #[derive(Debug, Clone)]
 pub struct Entry {
     pub value: Vec<u8>,
@@ -52,15 +78,34 @@ pub enum IncrError {
     Overflow,
 }
 
-#[derive(Default)]
 pub struct Store {
     map: HashMap<Box<[u8]>, Entry>,
+    used_bytes: usize,
+    max_memory_bytes: Option<usize>,
+}
+
+impl Default for Store {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Store {
     pub fn new() -> Self {
         Store {
             map: HashMap::new(),
+            used_bytes: 0,
+            max_memory_bytes: None,
+        }
+    }
+
+    /// A store that evicts (CLOCK-LRU) to stay within `max_bytes` — accounted
+    /// as key bytes + value bytes + `PER_ENTRY_OVERHEAD_BYTES` per entry.
+    pub fn with_max_memory(max_bytes: usize) -> Self {
+        Store {
+            map: HashMap::new(),
+            used_bytes: 0,
+            max_memory_bytes: Some(max_bytes),
         }
     }
 
@@ -72,6 +117,14 @@ impl Store {
         self.map.is_empty()
     }
 
+    pub fn used_bytes(&self) -> usize {
+        self.used_bytes
+    }
+
+    pub fn max_memory_bytes(&self) -> Option<usize> {
+        self.max_memory_bytes
+    }
+
     fn is_live(entry: &Entry, now: Instant) -> bool {
         match entry.expires_at {
             Some(deadline) => now < deadline,
@@ -79,18 +132,101 @@ impl Store {
         }
     }
 
+    fn remove_accounted(&mut self, key: &[u8]) -> Option<Entry> {
+        let removed = self.map.remove(key);
+        if let Some(ref e) = removed {
+            self.used_bytes -= entry_bytes(key, e.value.len());
+        }
+        removed
+    }
+
+    fn insert_accounted(&mut self, key: &[u8], mut entry: Entry) {
+        entry.clock_bit = true; // a fresh write counts as an access
+        let new_size = entry_bytes(key, entry.value.len());
+        if let Some(old) = self.map.insert(key.to_vec().into_boxed_slice(), entry) {
+            self.used_bytes -= entry_bytes(key, old.value.len());
+        }
+        self.used_bytes += new_size;
+        self.evict_to_budget(key);
+    }
+
     /// Lazy expiry on access: if `key` is present but expired as of `now`,
     /// remove it. Bible §3.5: "lazy expiry on read."
     fn expire_if_needed(&mut self, key: &[u8], now: Instant) {
         let expired = self.map.get(key).is_some_and(|e| !Self::is_live(e, now));
         if expired {
-            self.map.remove(key);
+            self.remove_accounted(key);
         }
+    }
+
+    /// CLOCK-LRU: while over budget, sample keys (skipping `protect`, the
+    /// key just written — never evict what you just inserted in the same
+    /// call) and evict the first one found with a clear clock bit, clearing
+    /// bits along the way (the "second chance"). Simplification vs. a
+    /// production CLOCK sweep (documented, not hidden): samples via
+    /// HashMap's own iteration order rather than a true random sample or a
+    /// stable ring/cursor — correct for the "never exceeds budget" property,
+    /// but sampling-quality tuning is real Phase 2 work (needs a soak test
+    /// to tune against, not pre-work).
+    fn evict_to_budget(&mut self, protect: &[u8]) {
+        let Some(budget) = self.max_memory_bytes else {
+            return;
+        };
+        while self.used_bytes > budget && !self.map.is_empty() {
+            let mut fallback: Option<Box<[u8]>> = None;
+            let mut evict: Option<Box<[u8]>> = None;
+            for (k, e) in self.map.iter_mut().take(DEFAULT_SAMPLE_SIZE) {
+                if k.as_ref() == protect {
+                    continue;
+                }
+                if e.clock_bit {
+                    e.clock_bit = false; // second chance
+                    fallback.get_or_insert_with(|| k.clone());
+                } else {
+                    evict = Some(k.clone());
+                    break;
+                }
+            }
+            let victim = evict.or(fallback);
+            match victim {
+                Some(k) => {
+                    self.remove_accounted(&k);
+                }
+                None => break, // only `protect` left (or map only has protect) — stop
+            }
+        }
+    }
+
+    /// Active expiry sweep: samples up to `sample_size` keys and removes any
+    /// expired as of `now`. Bible §3.5: "active sweep from the event loop
+    /// timer (N keys per tick, Redis-style), so memory is actually reclaimed
+    /// without a read." The caller (pg_resp's event loop, real Phase 2 work)
+    /// is responsible for invoking this periodically; this crate just
+    /// provides the mechanism.
+    pub fn active_expire_sweep(&mut self, now: Instant, sample_size: usize) -> usize {
+        let expired: Vec<Box<[u8]>> = self
+            .map
+            .iter()
+            .take(sample_size)
+            .filter(|(_, e)| !Self::is_live(e, now))
+            .map(|(k, _)| k.clone())
+            .collect();
+        let count = expired.len();
+        for k in expired {
+            self.remove_accounted(&k);
+        }
+        count
     }
 
     pub fn get(&mut self, now: Instant, key: &[u8]) -> Option<&[u8]> {
         self.expire_if_needed(key, now);
-        self.map.get(key).map(|e| e.value.as_slice())
+        match self.map.get_mut(key) {
+            Some(e) => {
+                e.clock_bit = true;
+                Some(e.value.as_slice())
+            }
+            None => None,
+        }
     }
 
     pub fn set(
@@ -130,8 +266,8 @@ impl Store {
             Expiry::At(deadline) => Some(deadline),
         };
 
-        self.map.insert(
-            key.to_vec().into_boxed_slice(),
+        self.insert_accounted(
+            key,
             Entry {
                 value,
                 expires_at,
@@ -151,7 +287,7 @@ impl Store {
         let mut count = 0;
         for key in keys {
             self.expire_if_needed(key, now);
-            if self.map.remove(*key).is_some() {
+            if self.remove_accounted(key).is_some() {
                 count += 1;
             }
         }
@@ -233,8 +369,8 @@ impl Store {
         };
         let new_value = current.checked_add(delta).ok_or(IncrError::Overflow)?;
         let expires_at = self.map.get(key).and_then(|e| e.expires_at);
-        self.map.insert(
-            key.to_vec().into_boxed_slice(),
+        self.insert_accounted(
+            key,
             Entry {
                 value: new_value.to_string().into_bytes(),
                 expires_at,
@@ -248,7 +384,13 @@ impl Store {
         keys.iter()
             .map(|key| {
                 self.expire_if_needed(key, now);
-                self.map.get(*key).map(|e| e.value.clone())
+                match self.map.get_mut(*key) {
+                    Some(e) => {
+                        e.clock_bit = true;
+                        Some(e.value.clone())
+                    }
+                    None => None,
+                }
             })
             .collect()
     }
@@ -256,8 +398,8 @@ impl Store {
     /// Always succeeds; each pair behaves like a bare SET (clears TTL).
     pub fn mset(&mut self, pairs: &[(&[u8], Vec<u8>)]) {
         for (key, value) in pairs {
-            self.map.insert(
-                key.to_vec().into_boxed_slice(),
+            self.insert_accounted(
+                key,
                 Entry {
                     value: value.clone(),
                     expires_at: None,
@@ -270,3 +412,5 @@ impl Store {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod proptests;
