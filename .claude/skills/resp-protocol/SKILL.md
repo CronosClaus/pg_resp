@@ -103,9 +103,9 @@ verify-not-assume item, not guessed here.
 | `EXPIRE` | `:0\r\n` (no-op) | `:1\r\n` (TTL set) | `:1\r\n` (TTL replaced) |
 
 `-2` vs `-1` is a frequently-flubbed-by-memory pair — **missing key is -2, key-with-no-expiry
-is -1** (not the reverse). Verify against valkey-notes.md; treat as unconfirmed-by-source
-until that digest lands (recorded here from spec/changelog knowledge, not yet source-checked
-per bible §7's "verify, don't assume" discipline).
+is -1** (not the reverse). **CONFIRMED** against `docs/refs/valkey-notes.md` (expire.c:898-930):
+TTL additionally rounds ms up to the nearest second (`(ms + 500) / 1000`), so a key with 1ms
+left reports `TTL` = 1, not 0 — PTTL returns the raw ms, unrounded.
 
 ## 6. Client handshake probes — minimal non-breaking stubs
 
@@ -185,10 +185,17 @@ them byte-exact in `resp-proto`'s test suite.
 **Inline edge case**
 38. bare inline `EXISTS somekey` (spec's own example) → `:0\r\n` on fresh store
 
-Numbers 30/31/32 need confirmation against valkey-notes.md for the *exact* wording of
-the non-integer error and whether a fresh `INCR` on a missing key is universally treated
-as starting from 0 (believed yes — Redis/Valkey documented behavior — mark CONFIRMED
-once the digest is cross-checked, not before).
+Numbers 30/31/32 **CONFIRMED** against `docs/refs/valkey-notes.md` (t_string.c:697-756):
+missing-key INCR starts from 0 and returns 1; non-integer error text is exactly
+`value is not an integer or out of range`; overflow (not in the vector list above, add if
+INCR/DECR overflow tests are wanted) is a distinct error, `increment or decrement would
+overflow` (DECRBY by `LLONG_MIN` gets its own `decrement would overflow` wording — a
+negation-overflow special case).
+
+**Not in bible §3.4's T0 scope but present in this Valkey version's `SET`:** an `IFEQ value`
+option (conditional set on value match, implies XX). Do not implement it in v0.1 — flagging
+only so it isn't mistaken for a missing T0 feature if `/ref/valkey`'s SET code is glanced at
+later.
 
 ## 8. Traps
 
