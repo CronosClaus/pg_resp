@@ -1,0 +1,12 @@
+[package]
+name = "resp-store"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "resp_store"
+path = "src/lib.rs"
+
+[dependencies]
+
+[dev-dependencies]

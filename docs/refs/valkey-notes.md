@@ -165,7 +165,13 @@
 
 2. **SET with expired EXAT/PXAT:** If timestamp is in past, key is stored but immediately logically expired. Active expiry will delete it; lazy expiry (on access) will treat as missing. `+OK` is still returned.
 
-3. **TTL rounding:** PTTL returns raw milliseconds; TTL rounds milliseconds up to nearest second (`(ms + 500) / 1000`), so a key with 1ms remaining shows TTL=1, not 0.
+3. **TTL rounding:** PTTL returns raw milliseconds; TTL rounds milliseconds to the *nearest*
+   second via `(ms + 500) / 1000`. **Correction (2026-08-05, caught by Phase 1 resp-store unit
+   tests):** this digest originally claimed "a key with 1ms remaining shows TTL=1, not 0" —
+   that does not follow from the formula above (`(1 + 500) / 1000 = 0` in integer division).
+   The formula itself is correct (real Redis/Valkey source idiom); the illustrative example was
+   simply arithmetically wrong. Correct examples: 400ms remaining → TTL 0, 600ms remaining →
+   TTL 1. A key can legitimately report TTL=0 in its last half-second before lazy expiry.
 
 4. **EXPIRE NX/XX/GT/LT:**  
    - GT treats no-expiry (-1) as infinite: GT always fails vs. no-expiry key  

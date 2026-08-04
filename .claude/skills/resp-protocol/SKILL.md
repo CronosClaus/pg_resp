@@ -104,8 +104,14 @@ verify-not-assume item, not guessed here.
 
 `-2` vs `-1` is a frequently-flubbed-by-memory pair — **missing key is -2, key-with-no-expiry
 is -1** (not the reverse). **CONFIRMED** against `docs/refs/valkey-notes.md` (expire.c:898-930):
-TTL additionally rounds ms up to the nearest second (`(ms + 500) / 1000`), so a key with 1ms
-left reports `TTL` = 1, not 0 — PTTL returns the raw ms, unrounded.
+TTL rounds ms to the *nearest* second via `(ms + 500) / 1000` (PTTL returns the raw ms,
+unrounded) — **correction, caught by Phase 1's resp-store unit tests**: the digest's own
+illustrative claim ("1ms remaining shows TTL=1") does not follow from its own cited formula —
+`(1 + 500) / 1000 = 0` in integer division. The formula is real (matches the actual Redis/Valkey
+source idiom) and is what pg_resp implements; the digest's example was simply arithmetically
+wrong and has been corrected in `docs/refs/valkey-notes.md`. Concretely: 400ms remaining → TTL 0,
+600ms remaining → TTL 1. A key legitimately reporting `TTL` = 0 in its last half-second before
+lazy expiry is correct behavior, not a bug — 0 doesn't collide with -1/-2's sentinel meanings.
 
 ## 6. Client handshake probes — minimal non-breaking stubs
 

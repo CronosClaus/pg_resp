@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/pg_resp", "crates/resp-proto"]
+members = ["crates/pg_resp", "crates/resp-proto", "crates/resp-store"]
 
 [profile.dev]
 panic = "unwind"
