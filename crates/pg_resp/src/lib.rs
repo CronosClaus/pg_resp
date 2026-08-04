@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-::pgrx::pg_module_magic!(c"pg_resp", pgrx::pg_sys::PG_VERSION);
+::pgrx::pg_module_magic!(name, version);
 
 // Phase 0 spike S1 — socket lifecycle only. Hardcoded port, hardcoded +PONG\r\n
 // reply to anything. No RESP parsing, no store, no GUCs: those are Phase 1.
