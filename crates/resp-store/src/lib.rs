@@ -30,8 +30,9 @@ pub enum Expiry {
     At(Instant),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Condition {
+    #[default]
     None,
     IfExists,
     IfNotExists,

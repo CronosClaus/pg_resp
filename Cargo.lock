@@ -1077,6 +1077,8 @@ dependencies = [
  "pgrx",
  "pgrx-bench",
  "pgrx-tests",
+ "resp-proto",
+ "resp-store",
 ]
 
 [[package]]

@@ -4,7 +4,7 @@ version = "0.0.0"
 edition = "2021"
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "lib"]
 
 [features]
 default = ["pg18"]
@@ -20,6 +20,8 @@ pg_bench = ["dep:pgrx-bench"]
 
 [dependencies]
 pgrx = "=0.19.2"
+resp-proto = { path = "../resp-proto" }
+resp-store = { path = "../resp-store" }
 
 [dependencies.pgrx-bench]
 version = "=0.19.2"
