@@ -1,6 +1,6 @@
 # pg_resp — agent entrypoint
 
-**Current phase: 1** (update this line at every phase boundary via /phase-report)
+**Current phase: 2** (update this line at every phase boundary via /phase-report)
 Spec: `project-bible.md`. §0 agent contract is **binding**. Method: `docs/RUNBOOK.md`.
 
 ## Session boot ritual
