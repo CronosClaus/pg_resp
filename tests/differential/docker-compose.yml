@@ -1,7 +1,5 @@
-# Valkey differential oracle (bible §5 Phase 1 gate, §9). UNTESTED — no
-# docker in this environment. See README.md in this directory for exact
-# status. `docker compose run --build runner` from this directory once
-# docker is available.
+# Valkey differential oracle (bible §5 Phase 1 gate, §9).
+# `docker compose run --build runner` from this directory.
 services:
   pg_resp:
     build:
@@ -9,6 +7,9 @@ services:
       dockerfile: docker/pg_resp.Dockerfile
     environment:
       POSTGRES_PASSWORD: pg_resp_test
+    # Test-only override — see tests/compat/docker-compose.yml's comment:
+    # a 127.0.0.1-bound listener is unreachable from sibling containers.
+    command: ["postgres", "-c", "pg_resp.bind_address=0.0.0.0"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 2s
@@ -17,7 +18,10 @@ services:
 
   valkey:
     image: valkey/valkey:8
-    command: ["valkey-server", "--save", "", "--appendonly", "no"]
+    # --protected-mode no: without it, Valkey refuses non-loopback
+    # connections when no bind/requirepass is configured — would otherwise
+    # block the runner container even on this private compose network.
+    command: ["valkey-server", "--save", "", "--appendonly", "no", "--protected-mode", "no"]
 
   runner:
     image: python:3-slim

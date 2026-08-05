@@ -20,6 +20,27 @@ fn ping_bare() {
 }
 
 #[test]
+fn hello_bare_returns_resp2_array_not_error() {
+    let mut s = Store::new();
+    assert!(matches!(run(&mut s, &["HELLO"]), Reply::Array(Some(_))));
+}
+
+#[test]
+fn hello_2_returns_resp2_array_not_error() {
+    let mut s = Store::new();
+    assert!(matches!(run(&mut s, &["HELLO", "2"]), Reply::Array(Some(_))));
+}
+
+#[test]
+fn hello_3_returns_noproto_error() {
+    let mut s = Store::new();
+    match run(&mut s, &["HELLO", "3"]) {
+        Reply::Error(msg) => assert!(String::from_utf8_lossy(&msg).starts_with("NOPROTO")),
+        other => panic!("expected NOPROTO error, got {other:?}"),
+    }
+}
+
+#[test]
 fn ping_with_message_echoes_as_bulk() {
     let mut s = Store::new();
     assert_eq!(run(&mut s, &["PING", "hello"]), Reply::bulk(&b"hello"[..]));

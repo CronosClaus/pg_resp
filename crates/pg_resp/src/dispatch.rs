@@ -153,6 +153,49 @@ pub fn dispatch(
             1 => Reply::bulk(rest[0].clone()),
             _ => err_wrong_args("echo"),
         },
+        // Client-handshake survival, not RESP3 support: the resp-protocol
+        // skill originally assumed clients fall back to RESP2 on an
+        // "unknown command" reply to HELLO — the docker-based compat matrix
+        // (bible §5 Phase 1 gate) proved that wrong for real: redis-py's
+        // connection setup raises on any error reply to HELLO instead of
+        // falling back. This returns a RESP2 array (never a RESP3 Map —
+        // bible D9/T0-T2 scope forbids implementing real RESP3), matching
+        // what real Redis/Valkey send for `HELLO 2` specifically.
+        "HELLO" => {
+            let ver = if rest.is_empty() {
+                2
+            } else {
+                match parse_i64(&rest[0]) {
+                    Some(v) => v,
+                    None => {
+                        return Reply::error(
+                            "NOPROTO unsupported protocol version",
+                        )
+                    }
+                }
+            };
+            if ver >= 3 {
+                return Reply::error(
+                    "NOPROTO sorry, this protocol version is not supported.",
+                );
+            }
+            Reply::Array(Some(vec![
+                Reply::bulk("server"),
+                Reply::bulk("redis"),
+                Reply::bulk("version"),
+                Reply::bulk("7.0.0"),
+                Reply::bulk("proto"),
+                Reply::Integer(2),
+                Reply::bulk("id"),
+                Reply::Integer(1),
+                Reply::bulk("mode"),
+                Reply::bulk("standalone"),
+                Reply::bulk("role"),
+                Reply::bulk("master"),
+                Reply::bulk("modules"),
+                Reply::Array(Some(vec![])),
+            ]))
+        }
         "GET" => match rest.len() {
             1 => match store.get(mono_now, &rest[0]) {
                 Some(v) => Reply::bulk(v.to_vec()),

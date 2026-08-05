@@ -1,7 +1,5 @@
-# Dockerized 5-client compat matrix (bible §5 Phase 1 gate). UNTESTED — no
-# docker in this environment; see README.md in this directory for exact
-# per-client verification status. `docker compose up --build --abort-on-container-exit`
-# from this directory once docker is available.
+# Dockerized 5-client compat matrix (bible §5 Phase 1 gate).
+# `docker compose up --build --abort-on-container-exit` from this directory.
 services:
   pg_resp:
     build:
@@ -11,6 +9,15 @@ services:
       POSTGRES_PASSWORD: pg_resp_test
     ports:
       - "6379:6379"
+    # Test-only override: pg_resp.bind_address defaults to 127.0.0.1 (bible
+    # D6's real security default, unchanged in the image). A loopback-bound
+    # listener inside a container's network namespace does not accept
+    # traffic arriving via its eth0 interface, so sibling containers on this
+    # compose network (redis-py, node-redis, ...) cannot reach it at all —
+    # confirmed by hand (connection refused) before adding this override.
+    # 0.0.0.0 here is a test-harness necessity, not a deployment
+    # recommendation; see docs/ops.md's bind-address warning.
+    command: ["postgres", "-c", "pg_resp.bind_address=0.0.0.0"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 2s
@@ -41,9 +48,12 @@ services:
       pg_resp:
         condition: service_healthy
     volumes:
+      # Read-only source + a writable working copy: `npm install` needs to
+      # write node_modules, which a `:ro` mount can't provide (found by
+      # actually running this — the container produced zero output because
+      # npm silently failed to write, then `&&` short-circuited node itself).
       - ./node_redis:/scripts:ro
-    working_dir: /scripts
-    entrypoint: ["sh", "-c", "npm install --silent redis && node test_t0.js pg_resp 6379"]
+    entrypoint: ["sh", "-c", "cp -r /scripts /work && cd /work && npm install redis && node test_t0.js pg_resp 6379"]
 
   go-redis:
     image: golang:1.22
@@ -52,8 +62,7 @@ services:
         condition: service_healthy
     volumes:
       - ./go_redis:/scripts:ro
-    working_dir: /scripts
-    entrypoint: ["sh", "-c", "go mod download && go run main.go pg_resp 6379"]
+    entrypoint: ["sh", "-c", "cp -r /scripts /work && cd /work && go mod download && go run main.go pg_resp 6379"]
 
   jedis:
     image: maven:3-eclipse-temurin-21
@@ -62,8 +71,8 @@ services:
         condition: service_healthy
     volumes:
       - ./jedis:/scripts:ro
-    working_dir: /scripts
     entrypoint:
-      ["sh", "-c", "mvn -q dependency:get -Dartifact=redis.clients:jedis:5.1.0 && \
+      ["sh", "-c", "cp -r /scripts /work && cd /work && \
+        mvn -q dependency:get -Dartifact=redis.clients:jedis:5.1.0 && \
         javac -cp $(find /root/.m2 -name 'jedis-5.1.0.jar'):. Test.java && \
         java -cp $(find /root/.m2 -name 'jedis-5.1.0.jar'):. Test pg_resp 6379"]
