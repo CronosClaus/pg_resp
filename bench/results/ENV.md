@@ -644,3 +644,101 @@ project's history. **Smoke numbers are never published**, and the harness
 enforces it structurally rather than by intention: a 1-run cell is stamped
 unpublishable (§12), and smoke output is written to a separate `smoke/`
 directory.
+
+## 19. A-smoke — executed, and what it caught
+
+Six cells, one per arm, 10 s x 1 run at 1 KB / pipeline 16 / 32 connections,
+5 s warm-up. **Not measurements.** Raw artifacts committed under
+`bench/results/smoke/`, each stamped `[unpublishable: single run, no spread]` by
+the harness itself.
+
+This was the first time the containerised-arm measurement path executed on any
+machine — on the dev box memtier could not reach a single containerised arm
+(progress report §D.2). It found three defects, which is the entire argument for
+running it before an official stage rather than after:
+
+1. **`box/psql` defaulted to role `root`.** Inside the container the process runs
+   as root and `sweep.py` does not pass `-U`, so both P-* cells VOIDed on
+   `FATAL: role "root" does not exist`. Note the failure direction: a refusal to
+   measure, not a silent unauthenticated run.
+2. **The K-pg exclusivity guard failed on success.** It conflated an *empty*
+   `SHOW shared_preload_libraries` result with a *failed query* — but empty is
+   precisely the state K-pg requires, so the check rejected the one
+   configuration it was written to approve. psql's exit status is now the query
+   verdict; its output is only the value.
+3. **The `[dev-only]` tag was printed for any unpublishable cell.** On the
+   dedicated box that is misleading in the worst direction: a reader seeing
+   "dev-only" beside a dedicated-box number would conclude it came from WSL2,
+   when the real reason is a single run with no spread (§12). The tag now states
+   the actual reason.
+
+Smoke figures, recorded for provenance only and **not to be quoted anywhere**:
+
+| arm | ops/s | p50 | p99 | hit |
+|---|---|---|---|---|
+| P-def | 419,286 | 1.223 | 1.375 | 52.70% |
+| P-opt | 417,213 | 1.247 | 1.415 | 52.55% |
+| R-def | 402,599 | 1.279 | 1.567 | 53.70% |
+| R-opt | 414,702 | 1.215 | 1.487 | 52.48% |
+| V-opt | 404,267 | 1.255 | 1.463 | 52.96% |
+| K-pg | 12,265 | 40.959 | 70.143 | 25.68% |
+
+Single 10 s runs with no spread check, i.e. exactly the shape §11 demonstrated
+can span 82k-213k on identical settings. They establish that all six arms
+serve, and nothing else.
+
+## 20. K-pg verified PG-backed on the box (A.3.1, G3 validity)
+
+Redka falls back to **SQLite silently** on an unusable DSN and still answers
+every RESP command correctly (progress report §D.8), so this is a validity
+requirement, not a formality.
+
+The check embedded in the smoke script was too weak and is recorded here as such:
+it read `pg_stat_user_tables.n_tup_ins`, which is a **lagged** cumulative
+statistic, and reported growth of `0 -> 4`. That is technically growth and it
+would have passed. Redone with real row counts:
+
+```
+BEFORE:  rkey=0      rstring=0
+burst:   10,000 SETs (memtier, ratio 1:0, 64 B, key-prefix kpgprobe:)  3,284 ops/s
+AFTER:   rkey=10000  rstring=10000
+```
+
+Read back **out of PostgreSQL**, not out of redka:
+
+```
+     key     | val_bytes
+-------------+-----------
+ kpgprobe:0  |        64
+ kpgprobe:1  |        64
+ kpgprobe:10 |        64
+
+ relname | n_tup_ins | n_tup_upd | idx_scan
+---------+-----------+-----------+----------
+ rkey    |     10001 |         0 |    30005
+ rstring |     10001 |         0 |    10003
+```
+
+**K-pg verified PG-backed via table growth.**
+
+That table is also the measured architectural explanation the positioning needs
+(amendment A.4.3), and it is stronger than the Phase 3 figure it replaces:
+10,000 RESP `SET`s cost Redka **two row inserts** (`rkey` *and* `rstring`) and
+**~4 index scans** (30,005 + 10,003 across the two tables). pg_resp's equivalent
+is a hash-map insert in the background worker's own heap. That is the whole gap,
+and it is measured rather than argued.
+
+### One comparability limit of the P-* vs K-pg pair, stated before the numbers
+
+P-def/P-opt run under a **256 MB cap with CLOCK-LRU eviction**; K-pg is a
+PostgreSQL table with **no cache bound at all**. Against bible §10's 1M-key
+space with 1 KB values (~1 GB of live data) the capped arms must evict and
+settle near a ~25-50% hit rate, while K-pg can retain the whole keyspace.
+
+This is not a misconfiguration to fix — it is the architectural difference under
+test (a bounded cache versus a table), and capping Redka is not something Redka
+offers. It does mean the two arms do not do identical per-operation work at every
+point on the curve, so **hit rate is published in every cell** and should be read
+alongside the ops figure. The direction is not uniformly favourable to either
+side: a hit returns 1 KB where a miss returns 5 bytes, so a *higher* hit rate is
+*more* work per operation.

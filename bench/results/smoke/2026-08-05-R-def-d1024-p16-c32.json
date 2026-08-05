@@ -1,0 +1,20 @@
+{
+  "arm": "R-def",
+  "workload_id": "d1024-p16-c32",
+  "env_class": "dedicated",
+  "publishable": false,
+  "total_conns": 32,
+  "ops_sec": 402598.71,
+  "p50": 1.279,
+  "p99": 1.567,
+  "p999": 3.759,
+  "avg_latency": 1.27074,
+  "hits_sec": 196552.01,
+  "misses_sec": 169445.35,
+  "hit_rate_pct": 53.703122339461686,
+  "spread_pct": null,
+  "n_runs": 1,
+  "spread_ok": false,
+  "raw_file": "bench/results/smoke/2026-08-05-R-def-d1024-p16-c32.txt",
+  "rerun": "bench/harness/sweep.py --arm R-def --port 6380 --data-size 1024 --pipeline 16 --clients 8 --threads 4 --test-time 10 --run-count 1 --warmup-time 5 --env-class dedicated --client-cpus 4-7 --client-pin-mechanism docker-cpuset --memtier bench/harness/box/memtier_benchmark --require-exclusive --out-dir bench/results/smoke --server-note 'SMOKE \u2014 never publishable'"
+}

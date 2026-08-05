@@ -1,0 +1,73 @@
+==============================================================================
+pg_resp benchmark raw output — arm P-opt — workload d1024-p16-c32
+==============================================================================
+arm            : P-opt  (pg_resp with documented tuning only (max_memory sized))
+workload       : data-size=1024 pipeline=16 clients=8 threads=4 => 32 total connections
+protocol       : 1 run(s) x 10s, ratio 1:10 SET:GET, key-pattern G:G, key-maximum 1000000 (bible §10)
+started (UTC)  : 2026-08-05T17:27:59.444570+00:00
+server note    : SMOKE — never publishable
+client pinning : docker --cpuset-cpus 4-7 (memtier runs containerised; see bench/harness/box/memtier_benchmark)
+env class      : dedicated — publishable — dedicated-vCPU Linux box per Phase 4 environment amendment
+publishable    : NO
+
+credential note: any --authenticate value below is recorded verbatim on
+purpose — iron rule 7 requires a command line that actually reruns. Per the
+Phase 4 standing rule the benchmark box uses a freshly generated throwaway
+password and is destroyed after the sweep; never reuse it anywhere.
+
+memtier invocation (verbatim — this line is the contract, iron rule 7):
+  bench/harness/box/memtier_benchmark --host=127.0.0.1 --port=6379 --protocol=redis --ratio=1:10 --data-size=1024 --key-pattern=G:G --key-maximum=1000000 --pipeline=16 --clients=8 --threads=4 --test-time=10 --run-count=1 --print-percentiles=50,99,99.9 --hide-histogram --authenticate=2007c50d0d90210f7fa4cacdd4de1753
+
+warm-up invocation (verbatim):
+  bench/harness/box/memtier_benchmark --host=127.0.0.1 --port=6379 --protocol=redis --ratio=1:0 --data-size=1024 --key-pattern=G:G --key-maximum=1000000 --pipeline=16 --clients=8 --threads=4 --test-time=5 --run-count=1 --hide-histogram --authenticate=2007c50d0d90210f7fa4cacdd4de1753
+
+regenerate this exact file with:
+  bench/harness/sweep.py --arm P-opt --port 6379 --data-size 1024 --pipeline 16 --clients 8 --threads 4 --test-time 10 --run-count 1 --warmup-time 5 --env-class dedicated --client-cpus 4-7 --client-pin-mechanism docker-cpuset --memtier bench/harness/box/memtier_benchmark --require-exclusive --out-dir bench/results/smoke --server-note 'SMOKE — never publishable' --auth-from-pg --psql bench/harness/box/psql --pg-host 127.0.0.1 --pg-port 28818
+
+pre-run and post-run checks:
+  - SHOW pg_resp.password -> set (read from the live instance, not assumed)
+  - exclusivity: no other arm port answers
+  - SET/GET probe OK over the measurement path (b'probe-ok' read back)
+  - warm-up: 5s SET-only over the same keyspace
+  - NOAUTH occurrences in output: 0 (must be 0)
+  - single run — no spread available; a 1-run cell is not acceptable official data (see ENV.md §12)
+  - GET hit rate: 52.55% (must be > 0)
+
+==============================================================================
+raw memtier output follows
+==============================================================================
+4         Threads
+8         Connections per thread
+10        Seconds
+
+
+ALL STATS
+============================================================================================================================
+Type         Ops/sec     Hits/sec   Misses/sec    Avg. Latency     p50 Latency     p99 Latency   p99.9 Latency       KB/sec 
+----------------------------------------------------------------------------------------------------------------------------
+Sets        37930.08          ---          ---         1.22589         1.24700         1.41500         3.58300     39707.80 
+Gets       379283.29    199326.13    179957.16         1.22620         1.24700         1.41500         3.64700    214547.41 
+Waits           0.00          ---          ---             ---             ---             ---             ---          --- 
+Totals     417213.37    199326.13    179957.16         1.22617         1.24700         1.41500         3.63100    254255.20 
+Writing results to stdout
+[RUN #1] Preparing benchmark client...
+[RUN #1] Launching threads now...
+[RUN #1 10%,   1 secs]  4 threads  8 conns:      404377 ops,  404344 (avg:  404344) ops/sec, 411.62MB/sec (avg: 411.62MB/sec),  1.26 (avg:  1.26) msec latency
+[RUN #1 20%,   2 secs]  4 threads  8 conns:      809734 ops,  405308 (avg:  404826) ops/sec, 412.60MB/sec (avg: 412.11MB/sec),  1.26 (avg:  1.26) msec latency
+[RUN #1 30%,   3 secs]  4 threads  8 conns:     1204521 ops,  394739 (avg:  401464) ops/sec, 401.84MB/sec (avg: 408.69MB/sec),  1.30 (avg:  1.27) msec latency
+[RUN #1 40%,   4 secs]  4 threads  8 conns:     1610272 ops,  405695 (avg:  402522) ops/sec, 413.00MB/sec (avg: 409.77MB/sec),  1.26 (avg:  1.27) msec latency
+[RUN #1 50%,   5 secs]  4 threads  8 conns:     2022372 ops,  412046 (avg:  404427) ops/sec, 373.26MB/sec (avg: 402.46MB/sec),  1.24 (avg:  1.26) msec latency
+[RUN #1 60%,   6 secs]  4 threads  8 conns:     2473691 ops,  451263 (avg:  412233) ops/sec, 97.80MB/sec (avg: 351.69MB/sec),  1.13 (avg:  1.24) msec latency
+[RUN #1 70%,   7 secs]  4 threads  8 conns:     2895475 ops,  421730 (avg:  413589) ops/sec, 91.24MB/sec (avg: 314.48MB/sec),  1.21 (avg:  1.24) msec latency
+[RUN #1 80%,   8 secs]  4 threads  8 conns:     3316674 ops,  421150 (avg:  414534) ops/sec, 93.29MB/sec (avg: 286.83MB/sec),  1.21 (avg:  1.23) msec latency
+[RUN #1 90%,   9 secs]  4 threads  8 conns:     3742286 ops,  425559 (avg:  415759) ops/sec, 94.00MB/sec (avg: 265.41MB/sec),  1.20 (avg:  1.23) msec latency
+[RUN #1 100%,  10 secs]  1 threads  8 conns:     4172468 ops,  425559 (avg:  417225) ops/sec, 94.00MB/sec (avg: 248.30MB/sec),  1.20 (avg:  1.23) msec latency
+[RUN #1 100%,  10 secs]  0 threads  8 conns:     4172482 ops,  425559 (avg:  417227) ops/sec, 94.00MB/sec (avg: 248.30MB/sec),  1.20 (avg:  1.23) msec latency
+
+warning: GET miss rate 47.45% above target 1.00% (1799785 misses / 3793152 ops)
+
+CPU Utilization Summary
+  Total CPU time:   10.864s  (user 4.718s, sys 6.145s)
+  Wall time:        10.001s
+  Cores used:       1.086   (avg 27.2% across 4 worker threads)
+  Peak utilization: 137.8%
