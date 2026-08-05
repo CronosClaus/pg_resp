@@ -238,6 +238,8 @@ Benchmark protocol §10 executed; README with positioning table (§2), honest nu
 
 DSA/dshash true shared-memory store (direct SQL reads without loopback), thread-per-core sharding, pub/sub↔LISTEN/NOTIFY bridge, RESP3, MULTI/EXEC, hashes/lists, metrics via pg_stat-style view, TLS, **demo 1 (API cache — cut from §11 in Phase 4)**, **jemalloc as the Rust `global_allocator` behind a feature flag** (pg_resp currently uses glibc malloc while Redis/Valkey use jemalloc 5.3.0 — an unmatched variable in the §10 RAM metric, documented in `bench/results/ENV.md` §10; deliberately **not** changed during Phase 4, since swapping the allocator mid-benchmark-phase would invalidate both the 96-byte accounting constant and every number measured against it), **`bytea` variant of `resp.get`**, **additional `resp.evict` key-column types**, **a tighter `PER_ENTRY_OVERHEAD_BYTES` measurement**.
 
+**CI-perf backlog (not chased in Phase 4, by decision).** The W1 matrix leg times are wildly asymmetric for the same test suite: **pg16 24m31s vs pg17 5m29s vs pg18 12m44s** (run `31023715193`). All three legs pass 76/76, so this is a cost-and-latency question, not a correctness one, and it was explicitly deferred rather than investigated. First things to check when it is picked up: whether the pg16 leg is rebuilding `pgrx-pg-sys` bindings from scratch while the others hit a warm cargo-registry cache, and whether leg ordering/runner contention (`target/` is uncached by design, per amendment A.3.3) accounts for the spread. Recorded so it is not rediscovered as a novelty.
+
 ---
 
 ## 6. Repository layout
