@@ -1,10 +1,18 @@
 // go-redis compat check against pg_resp's T0 command set.
 //
-// NOT LOCALLY VERIFIED: this WSL2 environment has no `go` toolchain
-// installed and none could be added without going outside this run's
-// allowed write paths (see reports/phase1.md). Written carefully against
-// go-redis v9's documented API; run for real via the dockerized compat
-// matrix (`docker compose run go-redis`) or any machine with Go.
+// Two bugs found by actually running this against a real pg_resp instance
+// (bible §5 Phase 1 compat gate), both in this script, not pg_resp:
+// 1. `rdb.SetNX(ctx, k, v, 0)` calls go-redis's SetNX method, which sends
+//    the literal legacy `SETNX` command — a separate T2-tier command (bible
+//    §3.4) pg_resp correctly doesn't implement yet in this T0-only pre-step.
+//    Fixed to use `SetArgs{Mode: "NX"}`, which sends `SET k v NX` — the T0
+//    feature this script actually means to test, matching how the other 4
+//    client scripts test the same thing (SET's NX flag, not a standalone
+//    command).
+// 2. `rdb.Expire(ctx, key, 10)` — go-redis's signature takes a
+//    `time.Duration` (int64 nanoseconds), so bare `10` means 10ns, not 10
+//    seconds; go-redis even warns and truncates it up to 1s, which is what
+//    silently broke the `ttl` check. Fixed to `10 * time.Second`.
 //
 // Usage: go run main.go [host] [port]
 // Exit code 0 = all checks passed, 1 = at least one failed.
@@ -14,6 +22,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -62,9 +71,10 @@ func main() {
 	addErrOnly("get missing is redis.Nil", true, getMissingErr)
 	results[len(results)-1].ok = getMissingErr == redis.Nil
 
-	nxRes := rdb.SetNX(ctx, "k", "v2", 0)
-	nxOk, nxErr := nxRes.Result()
-	add("set nx on existing key returns false", nxOk, false, nxErr)
+	// SET k v2 NX (T0's SET-with-flag, not the legacy SETNX command — see
+	// header comment). Existing key -> nil reply -> redis.Nil error.
+	_, nxErr := rdb.SetArgs(ctx, "k", "v2", redis.SetArgs{Mode: "NX"}).Result()
+	add("set nx on existing key returns redis.Nil", nxErr, redis.Nil, nil)
 
 	delRes, delErr := rdb.Del(ctx, "k").Result()
 	add("del", delRes, int64(1), delErr)
@@ -84,7 +94,7 @@ func main() {
 	add("incr again", incrRes2, int64(2), incrErr2)
 
 	rdb.Set(ctx, "ek", "v", 0)
-	expireRes, expireErr := rdb.Expire(ctx, "ek", 10).Result()
+	expireRes, expireErr := rdb.Expire(ctx, "ek", 10*time.Second).Result()
 	add("expire", expireRes, true, expireErr)
 	ttlRes, ttlErr := rdb.TTL(ctx, "ek").Result()
 	add("ttl", ttlRes.Seconds(), float64(10), ttlErr)

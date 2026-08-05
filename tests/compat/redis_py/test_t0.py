@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 """redis-py compat check against pg_resp's T0 command set.
 
-Verified locally (no docker) against a real pg_resp instance on 2026-08-05:
-12/12 passed. `redis` was installed via `pip install --target` into a
-non-system path to avoid touching this machine's system/Anaconda Python
-(see reports/phase1.md for why). In the dockerized compat matrix this same
-script runs inside a plain `python:3-slim` + `pip install redis` container.
+`protocol=2` is REQUIRED here, not optional: redis-py's `Redis()` defaults
+`protocol=None`, which resolves internally to RESP3
+(`check_protocol_version`'s `DEFAULT_RESP_VERSION`). A default-constructed
+client always sends `HELLO 3` on connect and, found by actually running this
+against a real pg_resp instance (bible §5 Phase 1 compat gate), treats ANY
+error reply to it as fatal — it does not downgrade-and-retry in RESP2,
+regardless of whether the server's reply is a spec-correct `-NOPROTO` or a
+plain `-ERR unknown command`. Since bible D9 forbids implementing real RESP3
+in v0.1, the only real fix is here, client-side: pin `protocol=2` explicitly,
+which is redis-py's documented, correct way to talk to a RESP2-only server.
 
 Usage: python3 test_t0.py [host] [port]
 Exit code 0 = all checks passed, 1 = at least one failed.
@@ -17,7 +22,7 @@ import redis
 host = sys.argv[1] if len(sys.argv) > 1 else "127.0.0.1"
 port = int(sys.argv[2]) if len(sys.argv) > 2 else 6379
 
-r = redis.Redis(host=host, port=port, decode_responses=True, socket_timeout=5)
+r = redis.Redis(host=host, port=port, decode_responses=True, socket_timeout=5, protocol=2)
 
 results = []
 

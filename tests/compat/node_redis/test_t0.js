@@ -1,10 +1,11 @@
 // node-redis compat check against pg_resp's T0 command set.
 //
-// NOT LOCALLY VERIFIED: this WSL2 environment has no `node` runtime
-// installed and none could be added without going outside this run's
-// allowed write paths (see reports/phase1.md). Written carefully against
-// node-redis's documented v4 API; run for real via the dockerized compat
-// matrix (`docker compose run node-redis`) or any machine with Node.
+// `RESP: 2` is REQUIRED here, not optional — same root cause as the
+// redis-py script's `protocol=2`: node-redis's `RedisClientOptions` type
+// defaults `RESP extends RespVersions = 3`, so a default-constructed client
+// always attempts RESP3 first and does not gracefully fall back to RESP2 on
+// any error reply. Confirmed by actually running this against a real
+// pg_resp instance (bible §5 Phase 1 compat gate) before this fix was added.
 //
 // Usage: node test_t0.js [host] [port]
 // Exit code 0 = all checks passed, 1 = at least one failed.
@@ -13,7 +14,7 @@ const { createClient } = require("redis");
 async function main() {
   const host = process.argv[2] || "127.0.0.1";
   const port = parseInt(process.argv[3] || "6379", 10);
-  const client = createClient({ socket: { host, port } });
+  const client = createClient({ socket: { host, port }, RESP: 2 });
   await client.connect();
 
   const results = [];
