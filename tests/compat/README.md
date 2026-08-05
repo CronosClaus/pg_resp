@@ -1,36 +1,56 @@
-# Client compat matrix — status (Phase 1)
+# Client compat matrix — status
 
 Bible §5 Phase 1 gate: redis-cli, redis-py, node-redis, go-redis, jedis all
-connect and run a T0 script green, dockerized, in CI. This environment has
-**no docker at all** (confirmed in `reports/phase0.md`'s environment
-pre-flight) — pre-scoped `PARTIAL(docker)` per this run's amendments. Exact
-per-client status as of this phase:
+connect and run a T0 script green, dockerized. **PASS (full)** — all 5 run
+for real via docker, confirmed 2026-08-05:
 
-| client | status | how verified |
+| client | result | notes |
 |---|---|---|
-| redis-py | **PASS — actually run** | `redis` installed via `pip install --target ~/.cargo/pylibs` (kept off system/Anaconda Python); ran `redis_py/test_t0.py` against a real local pg_resp instance: **12/12 checks passed**, including redis-py's own connection handshake |
-| redis-cli | not run as the literal binary | Ubuntu's `redis-tools` package pulls a transitive shared-library chain (`liblzf`, `lua5.1`, `lua5.1-cjson`, `lua5.1-bitop`, `libjemalloc2`) deep enough that chasing every missing `.so` had poor effort/value here. **The exact bytes redis-cli would exchange were already exhaustively verified by hand** via raw sockets in this same phase (36/36 byte-exact vectors against the resp-protocol skill's test vectors) — redis-cli is just another RESP2 client speaking the same wire format, so this is a gap in "ran the named binary," not in protocol-correctness confidence. `redis_cli/test_t0.sh` is written and ready. |
-| node-redis | not run | no `node` runtime in this environment; script written carefully against node-redis v4's documented API, not locally executed |
-| go-redis | not run | no `go` toolchain in this environment; script written carefully against go-redis v9's documented API, not locally executed |
-| jedis | not run | `java` is present but the Jedis jar/dependencies are not, and fetching them (Maven Central) wasn't attempted given the marginal value versus the other four clients already covering this same T0 surface |
+| redis-cli | **11/11** | official `redis:7` image, zero dependency issues |
+| redis-py | **12/12** | required `protocol=2` pinned explicitly — see below |
+| node-redis | **13/13** | required `RESP: 2` pinned explicitly — see below |
+| go-redis | **12/12** | test script bugs fixed along the way — see below |
+| jedis | **13/13** | — |
 
-## Running the real matrix (once docker is available)
-
-```
-docker compose up --build --abort-on-container-exit
-```
-
-from this directory. `docker/pg_resp.Dockerfile` (repo root) builds the
-extension into a real `postgres:18` image — **this Dockerfile is itself
-untested** (no docker to build it with); it's grounded in one verified fact,
-noted in its own header comment: `cargo pgrx package`'s output layout was
-confirmed locally against this machine's pgrx-managed install, and the
-Dockerfile assumes the equivalent layout for a real `postgresql-18` apt
-package (`/usr/lib/postgresql/18`, `/usr/share/postgresql/18`).
-
-## Running the one client that IS verified, without docker
+## Running it
 
 ```
-pip install --target /tmp/pylibs redis   # or just `pip install redis` normally
-PYTHONPATH=/tmp/pylibs python3 redis_py/test_t0.py <host> <port>
+docker compose up -d pg_resp   # start the server, wait for it to be healthy
+docker compose run --rm <client>
 ```
+
+Run each client with a fresh `pg_resp` (`docker compose restart pg_resp`
+or recreate it) between runs — the store is shared in-memory state, and
+different clients' scripts reuse the same literal keys (`k`, `ctr`, `ek`).
+Do NOT use `--abort-on-container-exit`: it aborts the whole run on the
+*first* container exit, killing the other independent one-shot clients even
+when that first one passed.
+
+## What running this for real actually found (not just "written, untested")
+
+- **`docker/pg_resp.Dockerfile`** needed real fixes: missing
+  `ca-certificates`/`pkg-config`/`libssl-dev`, and its `COPY` source paths
+  were wrong — `pg_resp` is a cargo workspace member, so `cargo pgrx
+  package`'s output lands in the *workspace-root* `target/`, not
+  `crates/pg_resp/target/`. Full detail in `reports/phase1.md`.
+- **`pg_resp.bind_address` defaults to 127.0.0.1** (the real, correct
+  production security default) — which means a container running the image
+  as-is is unreachable from sibling containers on the compose network
+  (loopback binds don't accept traffic via `eth0`). `docker-compose.yml`
+  overrides this with `postgres -c pg_resp.bind_address=0.0.0.0`,
+  commented as test-harness-only, not a deployment recommendation.
+- **redis-py and node-redis both default to attempting RESP3** and do not
+  gracefully fall back to RESP2 on any error reply to `HELLO` (traced
+  through both libraries' actual source to confirm). Since bible D9 forbids
+  implementing real RESP3 in v0.1, the fix is client-side: both scripts now
+  pin RESP2 explicitly (`protocol=2` / `{ RESP: 2 }`), which is each
+  library's documented, correct way to talk to a RESP2-only server.
+- go-redis's script had two of its own bugs (not pg_resp bugs): its
+  `SetNX()` method sends the legacy `SETNX` command (T2 tier, not yet
+  built) instead of `SET ... NX` (T0) — fixed to use `SetArgs{Mode: "NX"}`;
+  and `Expire(ctx, key, 10)` passed a bare `10` where the signature wants a
+  `time.Duration`, silently truncated to 1 second instead of 10.
+- node-redis's `client.quit()` sends the wire `QUIT` command (T1, not yet
+  built) — fixed to `client.destroy()` (plain socket close, no wire command).
+
+Full narrative in `reports/phase1.md`'s "PRE-STEP closure" section.
