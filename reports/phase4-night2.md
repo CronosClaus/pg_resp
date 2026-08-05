@@ -292,3 +292,38 @@ delete is byte-identical to `origin/master`.
 - [ ] W6 (RAM per 1M x 1 KB, caps raised ~1.5 GB, K-pg as disk + shared_buffers per D17)
 - [ ] Demo 3 measurement + G4 crossover
 - [ ] Morning report + SAFE TO DESTROY checklist
+
+
+---
+
+# RESTART 2 — 2026-08-05T21:36:18Z, head `d2c8c0a`
+
+The 21:16 launch was killed at ~7 cells and restarted, deliberately, so the run
+is homogeneous. Reason: **`--rerun-on-spread` was an accepted no-op.**
+
+`ENV.md` §12 has said since Phase 4 began that a cell exceeding 8% is re-run once
+with both attempts committed. The flag was declared, accepted, and echoed into
+every raw header's rerun line — and never read. `args.rerun_on_spread` appeared
+nowhere in the logic. Stage A never noticed because all 18 of its cells passed the
+gate first time; it surfaced only because a grid cell reported 9.91% spread and
+produced no second attempt.
+
+Implemented (`d2c8c0a`) as a genuine repeat with fresh CPU samples, keeping the
+tighter attempt and retaining **both** raw outputs under explicit ATTEMPT 1 /
+ATTEMPT 2 banners. Single-shot by design: §12 says re-run *once*, and a cell
+unstable twice is a finding to publish rather than a dice roll to repeat until it
+passes. Verified firing with `--spread-threshold 0.001` on a throwaway local cell
+— 13.72% -> "RE-RUNNING ONCE" -> 3.44% -> "KEEPING ATTEMPT 2" — because the bug
+being fixed was a flag that did nothing, and shipping that unverified would repeat
+it.
+
+Also hardened `run()`: a missing binary returns rc=127 instead of raising. A
+missing `psql` was killing an otherwise valid run from inside the live-config
+capture, and a configuration snapshot that cannot be taken is a gap to record, not
+grounds to discard a measurement.
+
+**Restarting cost ~7 cells (~25 min) and buys a run where every cell had the same
+chance to be rescued.** Mixing rescued and unrescued cells in one table would have
+been a protocol inconsistency invisible in the output.
+
+ETA ~02:55Z. Monitor re-armed, now also watching for RE-RUNNING events.
