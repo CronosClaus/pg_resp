@@ -226,7 +226,7 @@ func handleBulkReprice(w http.ResponseWriter, r *http.Request, id int) {
 
 	// Update in DB with discount applied
 	if err := app.db.Model(&Product{}, id).
-		Update("price", gorm.Expr("(price::float * ?)", 1-req.DiscountPercent/100)).Error; err != nil {
+		Update("price", gorm.Expr("(CAST(price AS FLOAT) * ?)", 1-req.DiscountPercent/100)).Error; err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
