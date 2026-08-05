@@ -12,6 +12,24 @@ for real via docker, confirmed 2026-08-05:
 | go-redis | **12/12** | test script bugs fixed along the way — see below |
 | jedis | **13/13** | — |
 
+**Phase 2 END-STEP** extended every script to T1/T2 (SETEX, SETNX, GETDEL,
+GETEX, PERSIST, TYPE, DBSIZE, KEYS, SCAN, INFO, SELECT, FLUSHDB) — new
+commands don't ship oracle-unchecked. Re-run for real via docker, confirmed
+2026-08-05: **144/144 (100%)** across all 5 clients —
+redis-cli 28/28, redis-py 27/27, node-redis 30/30, go-redis 28/28, jedis
+31/31. Three test-script bugs found and fixed along the way (all in RESP2
+integer-vs-coerced-type conventions, none in pg_resp):
+- redis-py: `SELECT`'s response callback coerces `+OK` to Python `True`, not
+  the literal string `'OK'` (same convention `flushdb()`/`set()` already use).
+- node-redis: `SCAN`'s cursor must start as a string (`"0"`), not a JS number
+  — its `parser.push(cursor)` has no numeric-argument path and throws.
+  Separately, RESP2-mode `SETNX`/`PERSIST` return raw integers (1/0), not
+  booleans — node-redis only coerces those under RESP3.
+- go-redis: `TTL`'s `-1`/`-2` sentinel values are stored as a raw, unscaled
+  `time.Duration(n)` (i.e. `n` *nanoseconds*), unlike real TTLs which are
+  scaled by `time.Second` — so `.Seconds()` on the sentinel gives `-1e-9`,
+  not `-1.0`. Compare the raw duration cast to `int64` instead.
+
 ## Running it
 
 ```

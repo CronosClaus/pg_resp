@@ -1,6 +1,6 @@
 # pg_resp — agent entrypoint
 
-**Current phase: 2** (update this line at every phase boundary via /phase-report)
+**Current phase: 3** (update this line at every phase boundary via /phase-report)
 Spec: `project-bible.md`. §0 agent contract is **binding**. Method: `docs/RUNBOOK.md`.
 
 ## Session boot ritual
@@ -10,7 +10,7 @@ Read, in order, nothing else by default:
 3. The skill relevant to the task (pointer map below)
 
 ## Commands
-- fast loop (no Postgres needed): `cargo test -p resp-proto -p resp-store`
+- fast loop (no Postgres needed): `cargo test -p resp-proto -p resp-store -p resp-client`
 - slow loop (crosses FFI): `cargo pgrx test pg18`
 - client compat matrix: `make compat`
 - reference clones: `bash scripts/clone-refs.sh` (Phase 0, once)

@@ -135,7 +135,13 @@ func main() {
 	persistRes, persistErr := rdb.Persist(ctx, "pk").Result()
 	add("persist", persistRes, true, persistErr)
 	persistTTL, persistTTLErr := rdb.TTL(ctx, "pk").Result()
-	add("ttl after persist (pk)", persistTTL.Seconds(), float64(-1), persistTTLErr)
+	// go-redis's DurationCmd.readReply (generic_commands.go / command.go)
+	// special-cases the -1/-2 sentinels: it stores them as a raw, UNSCALED
+	// time.Duration(n) (i.e. n nanoseconds), while real TTLs are multiplied
+	// by the `time.Second` precision. So .Seconds() on the sentinel yields
+	// -1e-9, not -1.0 — only real durations are meaningfully "in seconds".
+	// Compare the raw duration cast to int64 instead.
+	add("ttl after persist (pk)", int64(persistTTL), int64(-1), persistTTLErr)
 
 	typeRes, typeErr := rdb.Type(ctx, "pk").Result()
 	add("type string", typeRes, "string", typeErr)

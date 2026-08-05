@@ -52,7 +52,9 @@ check("expire+ttl", (r.set("ek", "v"), r.expire("ek", 10), r.ttl("ek")), (True, 
 check("dbsize before flush", r.dbsize() >= 1, True)
 check("flushdb", r.flushdb(), True)
 check("dbsize after flush", r.dbsize(), 0)
-check("select 0", r.execute_command("SELECT", 0), "OK")
+# redis-py's SELECT response callback coerces the +OK simple-string reply to
+# bool True, same convention as flushdb()/set() above — not the literal 'OK'.
+check("select 0", r.execute_command("SELECT", 0), True)
 check("setex", (r.setex("sk", 50, "v"), r.ttl("sk")), (True, 50))
 check("setnx new", r.setnx("nk", "v1"), True)
 check("setnx existing", r.setnx("nk", "v2"), False)

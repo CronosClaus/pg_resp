@@ -49,8 +49,11 @@ async function main() {
   check("dbsize after flush", await client.dbSize(), 0);
   await client.setEx("sk", 50, "v");
   check("setex ttl", await client.ttl("sk"), 50);
-  check("setnx new", await client.setNX("nk", "v1"), true);
-  check("setnx existing", await client.setNX("nk", "v2"), false);
+  // In RESP2 mode, SETNX/SET NX returns integer (1 for success, 0 for already
+  // exists), not boolean. This is the raw server reply, not coerced to bool
+  // like in RESP3. Noted by running against pg_resp.
+  check("setnx new", await client.setNX("nk", "v1"), 1);
+  check("setnx existing", await client.setNX("nk", "v2"), 0);
   await client.set("gk", "v");
   check("getdel", await client.getDel("gk"), "v");
   check("getdel removed key", await client.get("gk"), null);
@@ -58,20 +61,30 @@ async function main() {
   check("getex persist", await client.getEx("gek", { PERSIST: true }), "v");
   check("getex ttl after persist", await client.ttl("gek"), -1);
   await client.set("pk", "v", { EX: 10 });
-  check("persist", await client.persist("pk"), true);
+  // In RESP2 mode, PERSIST returns integer (1 for success, 0 for key doesn't
+  // exist or had no TTL), not boolean. Raw server reply, not RESP3-coerced.
+  check("persist", await client.persist("pk"), 1);
   check("ttl after persist", await client.ttl("pk"), -1);
   check("type string", await client.type("pk"), "string");
   check("type none", await client.type("missingkey"), "none");
   await client.mSet({ "user:1": "a", "user:2": "b" });
   const keys = await client.keys("user:*");
   check("keys pattern", keys.slice().sort(), ["user:1", "user:2"]);
+  // node-redis's SCAN command requires cursor to already be a string/Buffer
+  // (its internal parser.push(cursor) has no numeric-argument path) — found
+  // by reading the installed package's SCAN.js: parseScanArguments() does
+  // `parser.push(cursor)` with no .toString(), unlike its own now-unused
+  // pushScanArguments() helper which does convert. A JS number literal here
+  // throws "arguments[1] must be of type string | Buffer" before any command
+  // reaches the wire. transformReply() returns cursor back as a string, so
+  // only the initial value needs to be a string.
   let scanned = new Set();
-  let cursor = 0;
+  let cursor = "0";
   do {
     const result = await client.scan(cursor, { COUNT: 5 });
     cursor = result.cursor;
     for (const k of result.keys) scanned.add(k);
-  } while (cursor !== 0);
+  } while (cursor !== "0");
   check(
     "scan finds keys set via mset",
     ["user:1", "user:2"].every((k) => scanned.has(k)),

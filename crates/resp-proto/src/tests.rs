@@ -161,7 +161,10 @@ fn parse_pipelined_commands_only_consumes_one() {
 
 #[test]
 fn parse_rejects_negative_multibulk_length() {
-    assert!(matches!(parse_command(b"*-5\r\n"), ParseOutcome::Invalid(_)));
+    assert!(matches!(
+        parse_command(b"*-5\r\n"),
+        ParseOutcome::Invalid(_)
+    ));
 }
 
 #[test]
@@ -269,4 +272,321 @@ fn empty_array_command_is_empty_args() {
             consumed: 4,
         }
     );
+}
+
+// --- Client side (Phase 3): encode_command + parse_reply ---
+//
+// The loopback-RESP SQL surface (bible D3) makes this crate parse bytes from
+// BOTH ends of the socket. The vectors below are the response halves of the
+// resp-protocol skill §7 table — the same bytes the server-side tests above
+// assert we *emit*, now asserted as bytes we correctly *read back*.
+
+fn complete(reply: Reply, consumed: usize) -> ReplyOutcome {
+    ReplyOutcome::Complete { reply, consumed }
+}
+
+#[test]
+fn encode_command_shape() {
+    // resp-protocol skill §7 vector 2: the wire form of PING.
+    assert_eq!(encode_command(&[b"PING"]), b"*1\r\n$4\r\nPING\r\n");
+    assert_eq!(
+        encode_command(&[b"GET", b"k"]),
+        b"*2\r\n$3\r\nGET\r\n$1\r\nk\r\n"
+    );
+}
+
+#[test]
+fn encode_command_is_binary_safe() {
+    // Phase 2's adversarial deck proved the server handles embedded CRLF and
+    // NUL in keys/values; the length prefix is what makes that safe, so the
+    // encoder must never rely on the payload being text.
+    let value: &[u8] = b"a\r\nb\0c";
+    let encoded = encode_command(&[b"SET", b"k", value]);
+    assert_eq!(
+        encoded,
+        b"*3\r\n$3\r\nSET\r\n$1\r\nk\r\n$6\r\na\r\nb\0c\r\n"
+    );
+    // And it must survive a round trip through the server-side parser.
+    match parse_command(&encoded) {
+        ParseOutcome::Complete { args, consumed } => {
+            assert_eq!(consumed, encoded.len());
+            assert_eq!(args, vec![b"SET".to_vec(), b"k".to_vec(), value.to_vec()]);
+        }
+        other => panic!("expected Complete, got {other:?}"),
+    }
+}
+
+#[test]
+fn encode_command_empty_arg() {
+    assert_eq!(
+        encode_command(&[b"SET", b"k", b""]),
+        b"*3\r\n$3\r\nSET\r\n$1\r\nk\r\n$0\r\n\r\n"
+    );
+}
+
+#[test]
+fn parse_reply_simple_and_error() {
+    assert_eq!(
+        parse_reply(b"+OK\r\n"),
+        complete(Reply::Simple(b"OK".to_vec()), 5)
+    );
+    assert_eq!(
+        parse_reply(b"+PONG\r\n"),
+        complete(Reply::Simple(b"PONG".to_vec()), 7)
+    );
+    // Skill §7 vector 5 / §3: unknown command's exact error text.
+    assert_eq!(
+        parse_reply(b"-ERR unknown command 'FOOX'\r\n"),
+        complete(Reply::Error(b"ERR unknown command 'FOOX'".to_vec()), 29)
+    );
+    // NOAUTH matters to the client specifically: it proves the server is
+    // alive and speaking RESP even though it refused the command, which is
+    // what the S6 watchdog keys off.
+    assert_eq!(
+        parse_reply(b"-NOAUTH Authentication required.\r\n"),
+        complete(
+            Reply::Error(b"NOAUTH Authentication required.".to_vec()),
+            34
+        )
+    );
+}
+
+#[test]
+fn parse_reply_integers() {
+    assert_eq!(parse_reply(b":0\r\n"), complete(Reply::Integer(0), 4));
+    assert_eq!(parse_reply(b":11\r\n"), complete(Reply::Integer(11), 5));
+    // Skill §5: missing key is -2, key-with-no-expiry is -1. The pair whose
+    // ordering is easy to transpose from memory, so both directions are here.
+    assert_eq!(parse_reply(b":-1\r\n"), complete(Reply::Integer(-1), 5));
+    assert_eq!(parse_reply(b":-2\r\n"), complete(Reply::Integer(-2), 5));
+    // Spec permits an explicit leading '+' on integers.
+    assert_eq!(parse_reply(b":+5\r\n"), complete(Reply::Integer(5), 5));
+    assert_eq!(
+        parse_reply(b":9223372036854775807\r\n"),
+        complete(Reply::Integer(i64::MAX), 22)
+    );
+    assert_eq!(
+        parse_reply(b":-9223372036854775808\r\n"),
+        complete(Reply::Integer(i64::MIN), 23)
+    );
+}
+
+#[test]
+fn parse_reply_integer_overflow_is_invalid() {
+    // One past i64::MAX: must be rejected, not silently wrapped.
+    assert!(matches!(
+        parse_reply(b":9223372036854775808\r\n"),
+        ReplyOutcome::Invalid(_)
+    ));
+    assert!(matches!(parse_reply(b":\r\n"), ReplyOutcome::Invalid(_)));
+    assert!(matches!(parse_reply(b":abc\r\n"), ReplyOutcome::Invalid(_)));
+}
+
+#[test]
+fn parse_reply_null_vs_empty_bulk() {
+    // Skill §1/§8's #1 correctness trap, from the reading side this time:
+    // $-1 (missing) and $0 (present but empty) must not collapse together.
+    assert_eq!(parse_reply(b"$-1\r\n"), complete(Reply::Bulk(None), 5));
+    assert_eq!(
+        parse_reply(b"$0\r\n\r\n"),
+        complete(Reply::Bulk(Some(vec![])), 6)
+    );
+    assert_ne!(parse_reply(b"$-1\r\n"), parse_reply(b"$0\r\n\r\n"));
+}
+
+#[test]
+fn parse_reply_bulk_with_embedded_crlf() {
+    // The length prefix, not a delimiter scan, is what makes bulk data
+    // binary-safe — a payload containing CRLF must not terminate early.
+    assert_eq!(
+        parse_reply(b"$6\r\na\r\nb\0c\r\n"),
+        complete(Reply::Bulk(Some(b"a\r\nb\0c".to_vec())), 12)
+    );
+}
+
+#[test]
+fn parse_reply_bad_bulk_length() {
+    // $-2 is malformed, not "another kind of null".
+    assert!(matches!(parse_reply(b"$-2\r\n"), ReplyOutcome::Invalid(_)));
+    assert!(matches!(
+        parse_reply(b"$abc\r\nxx\r\n"),
+        ReplyOutcome::Invalid(_)
+    ));
+    // Length prefix beyond the 512MB cap is rejected at parse time, before
+    // anything is allocated.
+    assert!(matches!(
+        parse_reply(b"$536870913\r\n",),
+        ReplyOutcome::Invalid(_)
+    ));
+    // Correct length but the trailing CRLF is missing.
+    assert!(matches!(
+        parse_reply(b"$1\r\nvXX"),
+        ReplyOutcome::Invalid(_)
+    ));
+}
+
+#[test]
+fn parse_reply_arrays() {
+    // Skill §7 vector 36: MGET's shape, with a nil hole in the middle that
+    // must stay in place rather than being compacted out.
+    assert_eq!(
+        parse_reply(b"*3\r\n$2\r\nv1\r\n$-1\r\n$2\r\nv2\r\n"),
+        complete(
+            Reply::Array(Some(vec![
+                Reply::Bulk(Some(b"v1".to_vec())),
+                Reply::Bulk(None),
+                Reply::Bulk(Some(b"v2".to_vec())),
+            ])),
+            25
+        )
+    );
+    assert_eq!(
+        parse_reply(b"*0\r\n"),
+        complete(Reply::Array(Some(vec![])), 4)
+    );
+    assert_eq!(parse_reply(b"*-1\r\n"), complete(Reply::Array(None), 5));
+    assert_ne!(parse_reply(b"*-1\r\n"), parse_reply(b"*0\r\n"));
+}
+
+#[test]
+fn parse_reply_scan_shape() {
+    // SCAN is pg_resp's only genuinely nested reply: [cursor, [keys...]].
+    // This is the shape resp.keys()/resp.stats() will read back.
+    assert_eq!(
+        parse_reply(b"*2\r\n$1\r\n0\r\n*2\r\n$2\r\nk1\r\n$2\r\nk2\r\n"),
+        complete(
+            Reply::Array(Some(vec![
+                Reply::Bulk(Some(b"0".to_vec())),
+                Reply::Array(Some(vec![
+                    Reply::Bulk(Some(b"k1".to_vec())),
+                    Reply::Bulk(Some(b"k2".to_vec())),
+                ])),
+            ])),
+            31
+        )
+    );
+}
+
+#[test]
+fn parse_reply_rejects_resp3_sigils() {
+    // pg_resp never negotiates RESP3 (skill §6/§8). A RESP3 sigil on this
+    // socket means we are not talking to what we think we are — fail loudly
+    // rather than resynchronize.
+    for sigil in *b"_#,(!=%|~>" {
+        let buf = [sigil, b'x', b'\r', b'\n'];
+        assert!(
+            matches!(parse_reply(&buf), ReplyOutcome::Invalid(_)),
+            "RESP3 sigil {:?} must be rejected",
+            sigil as char
+        );
+    }
+}
+
+#[test]
+fn parse_reply_bounds_nesting_depth() {
+    // An array that opens MAX_REPLY_DEPTH+2 levels deep must be rejected
+    // rather than recursed into.
+    let mut buf = Vec::new();
+    for _ in 0..(MAX_REPLY_DEPTH + 2) {
+        buf.extend_from_slice(b"*1\r\n");
+    }
+    buf.extend_from_slice(b"$1\r\nx\r\n");
+    assert!(matches!(parse_reply(&buf), ReplyOutcome::Invalid(_)));
+
+    // Just inside the limit still parses, so the bound isn't off by enough to
+    // reject legitimate replies.
+    let mut ok = Vec::new();
+    for _ in 0..MAX_REPLY_DEPTH {
+        ok.extend_from_slice(b"*1\r\n");
+    }
+    ok.extend_from_slice(b"$1\r\nx\r\n");
+    assert!(matches!(parse_reply(&ok), ReplyOutcome::Complete { .. }));
+}
+
+#[test]
+fn parse_reply_incomplete_at_every_prefix() {
+    // The client's read loop depends on this: every strict prefix of a valid
+    // reply must report Incomplete, never Invalid and never a bogus Complete.
+    // A parser that returns Invalid on a half-arrived reply turns a slow
+    // socket into a dropped connection.
+    let vectors: &[&[u8]] = &[
+        b"+OK\r\n",
+        b"-ERR nope\r\n",
+        b":12345\r\n",
+        b"$-1\r\n",
+        b"$0\r\n\r\n",
+        b"$5\r\nhello\r\n",
+        b"*3\r\n$2\r\nv1\r\n$-1\r\n$2\r\nv2\r\n",
+        b"*2\r\n$1\r\n0\r\n*1\r\n$2\r\nk1\r\n",
+    ];
+    for full in vectors {
+        for cut in 1..full.len() {
+            assert_eq!(
+                parse_reply(&full[..cut]),
+                ReplyOutcome::Incomplete,
+                "prefix of length {cut} of {:?} should be Incomplete",
+                String::from_utf8_lossy(full)
+            );
+        }
+        assert!(matches!(parse_reply(full), ReplyOutcome::Complete { .. }));
+    }
+}
+
+#[test]
+fn parse_reply_leaves_trailing_bytes_alone() {
+    // Pipelined replies: parse one, report exactly what it consumed, leave
+    // the rest for the next call.
+    let buf = b"+OK\r\n:42\r\n$1\r\nv\r\n";
+    let ReplyOutcome::Complete { reply, consumed } = parse_reply(buf) else {
+        panic!("expected Complete");
+    };
+    assert_eq!(reply, Reply::Simple(b"OK".to_vec()));
+    assert_eq!(consumed, 5);
+    let ReplyOutcome::Complete { reply, consumed } = parse_reply(&buf[consumed..]) else {
+        panic!("expected Complete");
+    };
+    assert_eq!(reply, Reply::Integer(42));
+    assert_eq!(consumed, 5);
+}
+
+#[test]
+fn parse_reply_empty_buffer_is_incomplete() {
+    assert_eq!(parse_reply(b""), ReplyOutcome::Incomplete);
+}
+
+#[test]
+fn reply_round_trips_through_its_own_parser() {
+    // The invariant the whole loopback client rests on: anything the server
+    // can serialize, the client can read back identically. Covers every
+    // Reply variant including both null forms and a nested array.
+    let cases = vec![
+        Reply::ok(),
+        Reply::Simple(b"PONG".to_vec()),
+        Reply::error(&b"ERR wrong number of arguments for 'get' command"[..]),
+        Reply::Integer(0),
+        Reply::Integer(-2),
+        Reply::Integer(i64::MIN),
+        Reply::Integer(i64::MAX),
+        Reply::Bulk(None),
+        Reply::Bulk(Some(vec![])),
+        Reply::Bulk(Some(b"hello".to_vec())),
+        Reply::Bulk(Some(b"a\r\nb\0c".to_vec())),
+        Reply::Bulk(Some((0u8..=255).collect())),
+        Reply::Array(None),
+        Reply::Array(Some(vec![])),
+        Reply::Array(Some(vec![
+            Reply::Bulk(Some(b"v1".to_vec())),
+            Reply::Bulk(None),
+            Reply::Integer(7),
+            Reply::Array(Some(vec![Reply::Simple(b"nested".to_vec())])),
+        ])),
+    ];
+    for case in cases {
+        let bytes = case.to_bytes();
+        assert_eq!(
+            parse_reply(&bytes),
+            complete(case.clone(), bytes.len()),
+            "round trip failed for {case:?}"
+        );
+    }
 }

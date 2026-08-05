@@ -9,6 +9,11 @@
 - `--host=ADDR` or `-h ADDR`: server hostname/IP (default: localhost). memtier_benchmark.1:13
 - `--port=PORT` or `-p PORT`: server TCP port (default: 6379). memtier_benchmark.1:18
 - Plain TCP (no cluster mode by default). For TCP-only, omit `--cluster-mode`.
+- `--authenticate=CREDENTIALS` or `-a CREDENTIALS`: send `AUTH` on connect.
+  A bare password for Redis ≤ 5.x semantics (which is what pg_resp implements
+  — single password, no ACL users, bible §3.6), or `<USER>:<PASSWORD>` for
+  Redis 6+ ACL servers. **Required whenever `pg_resp.password` is set.**
+  Added 2026-08-05 after the omission cost a measurement — see the trap below.
 
 ---
 
@@ -137,6 +142,11 @@ Runs 3 iterations of 60 seconds each, with 64 total connections (8 clients × 8 
 7. **Default test termination:** if neither `--test-time` nor `--requests` is specified, `--requests=10000` (default) applies. For long-running benchmarks, always set `--test-time`.
 
 8. **Run-count vs parallel runs:** `--run-count=3` runs 3 sequential full benchmarks, not 3 parallel iterations. Total time ≈ 3 × 60 s = 180 s. Results are reported per-run; use `--print-all-runs` to output all three, otherwise only the median is shown.
+
+9. **A run against an auth-enabled server silently benchmarks *rejection*, and inflates its own output ~1000×.** memtier does **not** fail, warn, or exit when every command comes back `-NOAUTH Authentication required.` It reports a perfectly normal-looking ops/sec table — of refusals. Discovered 2026-08-05 (Phase 3 PRE-STEP): two saturation runs against a pg_resp instance with `pg_resp.password` set produced plausible 158k/176k ops/sec figures that measured nothing but the cost of saying no, and 820 MB of raw output consisting of 5.3 million repetitions of one error line. Two tells, both cheap to check:
+   - `SHOW pg_resp.password;` **before** the run — if non-empty, pass `--authenticate`.
+   - `grep -c NOAUTH <output>` **after** the run — must be 0.
+   The giveaway in the summary table is a 0% hit rate that does not improve no matter how long the run goes: if no GET ever succeeds, no GET was ever executed. Full write-up in `bench/results/ENV.md` §4.
 
 ---
 
