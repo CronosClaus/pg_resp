@@ -293,9 +293,7 @@ fn apply_queue(ops: Vec<QueuedItem>) {
     };
 
     if failed > 0 {
-        INVALIDATIONS_LOST
-            .get()
-            .fetch_add(failed as u64, Ordering::Relaxed);
+        count_lost_invalidations(failed as u64);
         // WARNING, never ERROR: see this function's doc comment. Built through
         // the builder so the advice lands in errhint rather than errdetail.
         pgrx::pg_sys::panic::ErrorReport::new(
@@ -313,6 +311,29 @@ fn apply_queue(ops: Vec<QueuedItem>) {
         )
         .report(PgLogLevel::WARNING);
     }
+}
+
+/// Add to the shared `invalidations_lost` counter, tolerating an uninitialized
+/// one.
+///
+/// The counter lives in shared memory allocated by `pg_shmem_init!` in
+/// `_PG_init`, which only runs when pg_resp is in `shared_preload_libraries`.
+/// It is entirely possible to `CREATE EXTENSION pg_resp` *without* that — the
+/// SQL objects install fine — and in that state `PgAtomic::get()` panics
+/// ("PgAtomic was not initialized") because pgrx resolves it through an
+/// `.expect()`.
+///
+/// That matters far more than it looks. This function is called from the
+/// post-commit callback, where a panic aborts the backend and can escalate
+/// cluster-wide. So the exact sequence "install without the preload, call
+/// `resp.set`, commit" would take down a backend — from a misconfiguration a
+/// user could easily make, with an error message about atomics that explains
+/// nothing. Losing the *count* of lost invalidations in a configuration where
+/// the cache was never reachable anyway is a trivial cost by comparison.
+fn count_lost_invalidations(n: u64) {
+    let _ = std::panic::catch_unwind(|| {
+        INVALIDATIONS_LOST.get().fetch_add(n, Ordering::Relaxed);
+    });
 }
 
 // ---------------------------------------------------------------------------

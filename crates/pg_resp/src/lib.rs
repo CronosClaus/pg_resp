@@ -161,6 +161,35 @@ macro_rules! server_log {
 #[allow(non_snake_case)]
 #[pg_guard]
 pub extern "C-unwind" fn _PG_init() {
+    // pg_resp only works when preloaded: it registers Postmaster-context GUCs
+    // and a background worker, neither of which can be created after startup.
+    //
+    // Without this check the failure is real but baffling. `CREATE EXTENSION
+    // pg_resp` succeeds without the preload (the SQL objects install fine), and
+    // then the first `resp.*` call loads the library on demand, runs _PG_init
+    // inside a *backend*, and Postgres kills that backend with
+    // `FATAL: cannot create PGC_POSTMASTER variables after startup` — a message
+    // that names neither pg_resp nor the fix. Verified by deliberately
+    // restarting without the preload.
+    //
+    // SAFETY: reading a PG global during library initialization, on the process
+    // main thread. This is the same guard contrib modules such as
+    // pg_stat_statements use for the same reason.
+    if !unsafe { pg_sys::process_shared_preload_libraries_in_progress } {
+        pgrx::pg_sys::panic::ErrorReport::new(
+            PgSqlErrorCode::ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE,
+            "pg_resp must be loaded via shared_preload_libraries",
+            "pg_resp",
+        )
+        .set_hint(
+            "add pg_resp to shared_preload_libraries in postgresql.conf and restart \
+             Postgres; the extension registers a background worker and \
+             postmaster-context GUCs, which cannot be created after startup",
+        )
+        .report(PgLogLevel::ERROR);
+        unreachable!("ERROR-level report does not return");
+    }
+
     GucRegistry::define_string_guc(
         c"pg_resp.bind_address",
         c"Address the RESP server listens on.",
