@@ -69,11 +69,23 @@ ct_for() {
   esac
 }
 
+# Find a cell's artifact by arm+workload, NOT by today's date.
+#
+# sweep.py names files <UTC-date>-<arm>-<workload>.json, and this grid runs for
+# ~6.5 h starting in the evening, so it crosses midnight UTC. Keying on
+# `date -u +%F` would mean that after midnight every cell completed before
+# midnight stopped being recognised: already-done cells would be re-run, and
+# record() would report blank metrics for cells that had just succeeded. Glob
+# instead, newest last.
+artifact_for() { # outdir arm workload
+  ls -1 "$1"/*-"$2"-"$3".json 2>/dev/null | tail -1
+}
+
 record() { # arm workload status outdir
   local arm="$1" wl="$2" status="$3" dir="$4"
-  local json="$dir/$(date -u +%F)-$arm-$wl.json"
+  local json; json="$(artifact_for "$dir" "$arm" "$wl")"
   local ops="" p99="" hit="" spread="" pub="" cpu=""
-  if [[ -f "$json" ]]; then
+  if [[ -n "$json" && -f "$json" ]]; then
     read -r ops p99 hit spread pub cpu < <(python3 - "$json" <<'PY'
 import json,sys
 c=json.load(open(sys.argv[1]))
@@ -105,9 +117,9 @@ check_stop() {
 run_cell() { # arm data_size pipeline conns outdir [extra sweep args...]
   local arm="$1" ds="$2" pl="$3" conns="$4" dir="$5"; shift 5
   local wl="d${ds}-p${pl}-c${conns}"
-  local day; day="$(date -u +%F)"
-  if [[ -f "$dir/$day-$arm-$wl.json" ]]; then
-    echo "SKIP $arm $wl (artifact exists)"; return 0
+  local existing; existing="$(artifact_for "$dir" "$arm" "$wl")"
+  if [[ -n "$existing" ]]; then
+    echo "SKIP $arm $wl (artifact exists: $(basename "$existing"))"; return 0
   fi
   local cl th; read -r cl th <<< "$(ct_for "$conns")"
 
