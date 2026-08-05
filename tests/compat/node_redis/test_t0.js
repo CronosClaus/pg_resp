@@ -43,6 +43,43 @@ async function main() {
   check("expire", await client.expire("ek", 10), 1);
   check("ttl", await client.ttl("ek"), 10);
 
+  // --- T1/T2 (bible §3.4, phase 2) ---
+  check("dbsize before flush", (await client.dbSize()) >= 1, true);
+  check("flushdb", await client.flushDb(), "OK");
+  check("dbsize after flush", await client.dbSize(), 0);
+  await client.setEx("sk", 50, "v");
+  check("setex ttl", await client.ttl("sk"), 50);
+  check("setnx new", await client.setNX("nk", "v1"), true);
+  check("setnx existing", await client.setNX("nk", "v2"), false);
+  await client.set("gk", "v");
+  check("getdel", await client.getDel("gk"), "v");
+  check("getdel removed key", await client.get("gk"), null);
+  await client.set("gek", "v", { EX: 100 });
+  check("getex persist", await client.getEx("gek", { PERSIST: true }), "v");
+  check("getex ttl after persist", await client.ttl("gek"), -1);
+  await client.set("pk", "v", { EX: 10 });
+  check("persist", await client.persist("pk"), true);
+  check("ttl after persist", await client.ttl("pk"), -1);
+  check("type string", await client.type("pk"), "string");
+  check("type none", await client.type("missingkey"), "none");
+  await client.mSet({ "user:1": "a", "user:2": "b" });
+  const keys = await client.keys("user:*");
+  check("keys pattern", keys.slice().sort(), ["user:1", "user:2"]);
+  let scanned = new Set();
+  let cursor = 0;
+  do {
+    const result = await client.scan(cursor, { COUNT: 5 });
+    cursor = result.cursor;
+    for (const k of result.keys) scanned.add(k);
+  } while (cursor !== 0);
+  check(
+    "scan finds keys set via mset",
+    ["user:1", "user:2"].every((k) => scanned.has(k)),
+    true
+  );
+  const info = await client.info();
+  check("info has used_memory", info.includes("used_memory"), true);
+
   const failures = results.filter(([, ok]) => !ok);
   for (const [desc, ok, actual, expected] of results) {
     console.log(`${ok ? "OK" : "FAIL"} ${desc}: got=${JSON.stringify(actual)} expected=${JSON.stringify(expected)}`);

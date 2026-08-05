@@ -48,6 +48,36 @@ check("incr", r.incr("ctr"), 1)
 check("incr again", r.incr("ctr"), 2)
 check("expire+ttl", (r.set("ek", "v"), r.expire("ek", 10), r.ttl("ek")), (True, True, 10))
 
+# --- T1/T2 (bible §3.4, phase 2) ---
+check("dbsize before flush", r.dbsize() >= 1, True)
+check("flushdb", r.flushdb(), True)
+check("dbsize after flush", r.dbsize(), 0)
+check("select 0", r.execute_command("SELECT", 0), "OK")
+check("setex", (r.setex("sk", 50, "v"), r.ttl("sk")), (True, 50))
+check("setnx new", r.setnx("nk", "v1"), True)
+check("setnx existing", r.setnx("nk", "v2"), False)
+check("getdel", (r.set("gk", "v"), r.getdel("gk"), r.get("gk")), (True, "v", None))
+check(
+    "getex persist",
+    (r.set("gek", "v", ex=100), r.getex("gek", persist=True), r.ttl("gek")),
+    (True, "v", -1),
+)
+check("persist", (r.set("pk", "v", ex=10), r.persist("pk"), r.ttl("pk")), (True, True, -1))
+check("type string", r.type("pk"), "string")
+check("type none", r.type("missingkey"), "none")
+r.mset({"user:1": "a", "user:2": "b"})
+check("keys pattern", sorted(r.keys("user:*")), ["user:1", "user:2"])
+scanned = set()
+cursor = 0
+while True:
+    cursor, batch = r.scan(cursor, count=5)
+    scanned.update(batch)
+    if cursor == 0:
+        break
+check("scan full iteration finds keys set via mset", {"user:1", "user:2"} <= scanned, True)
+info = r.info()
+check("info has used_memory", "used_memory" in info, True)
+
 failures = [row for row in results if not row[1]]
 for desc, ok, actual, expected in results:
     print(f"{'OK' if ok else 'FAIL'} {desc}: got={actual!r} expected={expected!r}")

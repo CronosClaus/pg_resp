@@ -99,6 +99,77 @@ func main() {
 	ttlRes, ttlErr := rdb.TTL(ctx, "ek").Result()
 	add("ttl", ttlRes.Seconds(), float64(10), ttlErr)
 
+	// --- T1/T2 (bible §3.4, phase 2) ---
+	dbsizeBefore, dbsizeBeforeErr := rdb.DBSize(ctx).Result()
+	add("dbsize before flush nonzero", dbsizeBefore > 0, true, dbsizeBeforeErr)
+
+	flushRes, flushErr := rdb.FlushDB(ctx).Result()
+	add("flushdb", flushRes, "OK", flushErr)
+
+	dbsizeAfter, dbsizeAfterErr := rdb.DBSize(ctx).Result()
+	add("dbsize after flush", dbsizeAfter, int64(0), dbsizeAfterErr)
+
+	setexRes, setexErr := rdb.SetEx(ctx, "sk", "v", 50*time.Second).Result()
+	add("setex", setexRes, "OK", setexErr)
+	setexTTL, setexTTLErr := rdb.TTL(ctx, "sk").Result()
+	add("setex ttl", setexTTL.Seconds(), float64(50), setexTTLErr)
+
+	setnxRes, setnxErr := rdb.SetNX(ctx, "nk", "v1", 0).Result()
+	add("setnx new (legacy SETNX command, now implemented)", setnxRes, true, setnxErr)
+	setnxRes2, setnxErr2 := rdb.SetNX(ctx, "nk", "v2", 0).Result()
+	add("setnx existing", setnxRes2, false, setnxErr2)
+
+	rdb.Set(ctx, "gk", "v", 0)
+	getdelRes, getdelErr := rdb.GetDel(ctx, "gk").Result()
+	add("getdel", getdelRes, "v", getdelErr)
+	_, getdelMissingErr := rdb.Get(ctx, "gk").Result()
+	add("getdel removed key returns redis.Nil", getdelMissingErr, redis.Nil, nil)
+
+	// GETEX itself is covered by the redis_py/node_redis scripts — go-redis's
+	// GetEx signature semantics weren't confirmed against the actual
+	// installed version (module cache lookup didn't resolve cleanly in the
+	// container), so it's skipped here rather than shipping an unverified
+	// check. PERSIST (a plain, unambiguous method) is still exercised below.
+
+	rdb.Set(ctx, "pk", "v", 10*time.Second)
+	persistRes, persistErr := rdb.Persist(ctx, "pk").Result()
+	add("persist", persistRes, true, persistErr)
+	persistTTL, persistTTLErr := rdb.TTL(ctx, "pk").Result()
+	add("ttl after persist (pk)", persistTTL.Seconds(), float64(-1), persistTTLErr)
+
+	typeRes, typeErr := rdb.Type(ctx, "pk").Result()
+	add("type string", typeRes, "string", typeErr)
+	typeNoneRes, typeNoneErr := rdb.Type(ctx, "missingkey").Result()
+	add("type none", typeNoneRes, "none", typeNoneErr)
+
+	rdb.MSet(ctx, "user:1", "a", "user:2", "b")
+	keysRes, keysErr := rdb.Keys(ctx, "user:*").Result()
+	keysOk := keysErr == nil && len(keysRes) == 2
+	results = append(results, check{"keys pattern", keysOk, keysRes, "[user:1 user:2] (any order)"})
+
+	scanned := map[string]bool{}
+	var scanCursor uint64
+	for {
+		var page []string
+		var err error
+		page, scanCursor, err = rdb.Scan(ctx, scanCursor, "", 5).Result()
+		if err != nil {
+			break
+		}
+		for _, k := range page {
+			scanned[k] = true
+		}
+		if scanCursor == 0 {
+			break
+		}
+	}
+	scanOk := scanned["user:1"] && scanned["user:2"]
+	results = append(results, check{"scan finds keys set via mset", scanOk, scanned, "contains user:1,user:2"})
+
+	infoRes, infoErr := rdb.Info(ctx).Result()
+	infoOk := infoErr == nil && len(infoRes) > 0
+	results = append(results, check{"info non-empty", infoOk, len(infoRes), "> 0"})
+
 	failures := 0
 	for _, c := range results {
 		status := "OK"
