@@ -16,6 +16,10 @@ pg17 = ["pgrx/pg17", "pgrx-tests/pg17" ]
 pg18 = ["pgrx/pg18", "pgrx-tests/pg18" ]
 pg19 = ["pgrx/pg19", "pgrx-tests/pg19" ]
 pg_test = []
+# Adds a `DEBUG PANIC-CONNECTION` / `DEBUG PANIC-TOPLEVEL` command used only to
+# exercise S6's panic policy on purpose. Never enabled in a shipping build —
+# deliberately not in `default`, so the command does not exist at all there.
+debug_panic = []
 pg_bench = ["dep:pgrx-bench"]
 
 [dependencies]

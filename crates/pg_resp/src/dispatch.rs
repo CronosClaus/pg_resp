@@ -361,7 +361,7 @@ pub fn dispatch(
             ))
         }
         "MSET" => {
-            if rest.is_empty() || rest.len() % 2 != 0 {
+            if rest.is_empty() || !rest.len().is_multiple_of(2) {
                 return err_wrong_args("mset");
             }
             let pairs: Vec<(&[u8], Vec<u8>)> = rest
@@ -523,6 +523,32 @@ pub fn dispatch(
             }
         }
         "QUIT" => Reply::ok(), // lib.rs's caller closes the connection after sending this
+
+        // Test-only failure injection for S6's panic policy. Compiled only
+        // under the `debug_panic` feature, which is not in `default` — in a
+        // shipping build this arm does not exist and `DEBUG` falls through to
+        // `unknown command`, same as any other unimplemented command.
+        //
+        // It exists because S6's two panic paths have *different* blast radii
+        // and the difference is the whole point: a per-connection panic must
+        // cost exactly one connection, while a top-level panic must take the
+        // process down so the postmaster restarts it. Neither claim is worth
+        // anything unless it has actually been triggered on purpose.
+        #[cfg(feature = "debug_panic")]
+        "DEBUG" => {
+            match rest.first().map(|a| upper(a)).as_deref() {
+                Some("PANIC-CONNECTION") => panic!("deliberate per-connection panic (debug_panic)"),
+                Some("PANIC-TOPLEVEL") => {
+                    // Cannot panic here: this call site sits *inside* the
+                    // per-connection fence, which would catch it. Instead ask
+                    // the server loop to panic from its own body, outside the
+                    // fence.
+                    crate::DEBUG_PANIC_TOPLEVEL.store(true, std::sync::atomic::Ordering::SeqCst);
+                    Reply::ok()
+                }
+                _ => Reply::error("ERR DEBUG subcommand not supported by pg_resp"),
+            }
+        }
 
         // --- T2 (bible §3.4, phase 2) ---
         "SETEX" => {

@@ -193,17 +193,46 @@ bgworker — only from the registered entry-point thread:
    `pg_module_magic!(name, version);` unless a custom name/version string is
    actually needed.
 2. **`bindgen` needs `libclang`, a *shared library*, not a `clang` binary —
-   and this machine has neither, with no passwordless sudo.** Full
-   workaround (no root, everything confined to `~/.cargo`) recorded in
-   `reports/BLOCKED.md`: vendor `libclang.so` from the PyPI `libclang` wheel
-   (`pip download libclang --no-deps`) into `~/.cargo/libclang-lib/`, then
-   separately vendor clang's resource-dir builtin headers (`stddef.h` etc. —
-   **not** included in that wheel) from the `libclang-common-14-dev` `.deb`
-   via `apt-get download` (no root) + `dpkg-deb -x` (no root) into
-   `~/.cargo/clang-resource/include/`. Both env vars
-   (`LIBCLANG_PATH`, `BINDGEN_EXTRA_CLANG_ARGS=-isystem ...`) are set
-   globally in `~/.cargo/config.toml` (machine-local, intentionally **not**
-   committed to the repo — hardcodes this machine's home directory).
+   and this machine has neither, with no passwordless sudo.** Everything is
+   vendored under `~/.cargo` (no root); `~/.cargo/config.toml`'s `[env]`
+   block sets it globally, machine-local and intentionally **not** committed
+   (it hardcodes this machine's home directory). The working configuration:
+
+   ```toml
+   [env]
+   LIBCLANG_PATH = "/home/claudiu/.cargo/libclang-14"
+   BINDGEN_EXTRA_CLANG_ARGS = "-resource-dir=/home/claudiu/.cargo/clang-resource"
+   ```
+
+   - `libclang.so` extracted from the `libclang1-14` `.deb`
+     (`apt-get download` + `dpkg-deb -x`, neither needs root).
+   - Clang's resource-dir builtin headers (`stddef.h`, `stdint.h`, ...) from
+     `libclang-common-14-dev`, same no-root method, into
+     `~/.cargo/clang-resource/include/`.
+
+   **Corrected in Phase 3 — the recipe in `reports/BLOCKED.md` is subtly
+   wrong and produces a setup that only builds from a warm cache.** Two
+   things were off, and the symptom is nasty because it hides:
+
+   1. **`-resource-dir=<dir>`, not `-isystem <dir>/include`.** Clang finds its
+      builtin headers through its resource dir; passing that directory as an
+      ordinary include path does not make it the resource dir, so clang's own
+      `stdint.h` is never found. `/usr/include/inttypes.h` then fails on
+      `intmax_t`, and every PG header after it collapses (`uint8_t`,
+      `uintptr_t`, "duplicate case value '4'", ~20 errors then
+      `too many errors emitted`).
+   2. **Version-match the library to the headers.** The original recipe paired
+      a PyPI `libclang` 18.1.1 wheel with clang-14 resource headers. Use
+      libclang 14 with the v14 headers.
+
+   **Why this went unnoticed for two phases:** `cargo build` and
+   `cargo pgrx install` kept working because `pgrx-pg-sys`'s generated
+   bindings were already in `target/` from the one successful Phase 0 run.
+   Nothing regenerates them until something invalidates that fingerprint —
+   `cargo clippy` does, which is how it surfaced (clippy failing inside
+   `pgrx-bindgen` while `cargo build` succeeded seconds earlier is the
+   signature). A `cargo clean` would have bricked the project at any point.
+   If bindgen errors ever reappear, suspect this before suspecting the code.
 3. **Workspace `Cargo.toml` profile placement.** `cargo pgrx new` generates a
    standalone crate with its own `[profile.dev]`/`[profile.release]` in
    `crates/pg_resp/Cargo.toml`. The moment that crate becomes a workspace

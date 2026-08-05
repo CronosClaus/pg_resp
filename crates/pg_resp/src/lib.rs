@@ -42,6 +42,36 @@ const SHUTDOWN_CHECK_INTERVAL: Duration = Duration::from_millis(100);
 const LISTENER_TOKEN: Token = Token(0);
 const READ_CHUNK: usize = 16 * 1024;
 
+/// How often the main thread wakes to check the server thread's health (S6).
+/// Also bounds how long a wedged service can go unnoticed.
+const WATCHDOG_INTERVAL: Duration = Duration::from_secs(3);
+
+/// Consecutive failed probes before the watchdog declares the service dead.
+///
+/// Not 1: a single probe can fail for reasons that are not "the service is
+/// gone" — a transient EMFILE, a full accept backlog, or the loop being busy
+/// with a long command for longer than the probe timeout. Three strikes at
+/// `WATCHDOG_INTERVAL` means ~9s of continuous failure before we take the
+/// process down, which is short enough to matter and long enough not to
+/// restart a healthy worker over a hiccup.
+const WATCHDOG_STRIKES: u32 = 3;
+
+/// Per-connection cap on buffered-but-unsent reply bytes.
+///
+/// A client that pipelines aggressively and reads slowly makes the server
+/// accumulate replies it cannot flush. Without a cap that is an unbounded
+/// allocation driven entirely by the peer — the same hazard Redis addresses
+/// with `client-output-buffer-limit`. Exceeding it drops that one connection;
+/// every other connection is unaffected.
+const MAX_PENDING_WRITE_BYTES: usize = 64 * 1024 * 1024;
+
+/// Set by the `DEBUG PANIC-TOPLEVEL` command (only compiled with the
+/// `debug_panic` feature) to make the server loop panic *outside* the
+/// per-connection fence, which is the only way to exercise S6's top-level
+/// policy on purpose. Never present in a normal build.
+#[cfg(feature = "debug_panic")]
+pub(crate) static DEBUG_PANIC_TOPLEVEL: AtomicBool = AtomicBool::new(false);
+
 static BIND_ADDRESS: GucSetting<Option<CString>> =
     GucSetting::<Option<CString>>::new(Some(c"127.0.0.1"));
 static PORT: GucSetting<i32> = GucSetting::<i32>::new(6379);
@@ -279,6 +309,8 @@ pub extern "C-unwind" fn background_worker_main(_arg: pg_sys::Datum) {
     // should make reaching this outer boundary essentially unreachable in
     // practice); it exists so a panic anywhere else in the loop (e.g. in
     // `accept()` handling) is at least logged loudly instead of vanishing.
+    let server_died = Arc::new(AtomicBool::new(false));
+    let server_died_flag = Arc::clone(&server_died);
     let server_thread = std::thread::spawn(move || {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             server_loop(
@@ -297,17 +329,64 @@ pub extern "C-unwind" fn background_worker_main(_arg: pg_sys::Datum) {
                 .unwrap_or_else(|| "<non-string panic payload>".to_string());
             server_log!(
                 "FATAL — top-level loop panicked despite per-connection fencing: {msg}. \
-                 The RESP service is now dead until the next bgworker restart; \
-                 Postgres itself is unaffected."
+                 Flagging the worker for restart."
             );
         }
+        // S6: whether the loop panicked or merely returned, reaching this point
+        // without a requested shutdown means the RESP service is gone. Flag it;
+        // the main thread turns that into a process exit.
+        //
+        // This replaces catch-and-linger, which was the worst of both worlds:
+        // the process stayed healthy, `SELECT 1` kept working, the worker was
+        // still listed as running — and no connection would ever be served
+        // again, with nothing anywhere reporting a problem. Exiting is louder
+        // and, crucially, self-healing: bgw_restart_time brings up a fresh
+        // worker with a working listener.
+        server_died_flag.store(true, Ordering::SeqCst);
     });
 
-    // Main (registered) thread: PG lifecycle only — never touches the socket
-    // or the store directly (pgrx-patterns skill §3/§7).
-    while BackgroundWorker::wait_latch(Some(Duration::from_secs(10))) {
+    // Main (registered) thread: PG lifecycle plus the S6 watchdog. It never
+    // touches the socket or the store directly (pgrx-patterns skill §3/§7) —
+    // the watchdog reaches the server the same way any client would, over TCP,
+    // which is exactly why it can tell that the service is *answering* rather
+    // than merely that a thread exists.
+    //
+    // resp-client has no pgrx dependency so calling it here is fine; and this
+    // thread may call PG FFI, so `log!`/`ereport!` work here (they do not on
+    // the server thread).
+    let (probe_addr, probe_password) = loopback_target();
+    let mut probe = resp_client::Client::new(probe_addr.clone(), probe_password)
+        .with_timeout(WATCHDOG_INTERVAL);
+    let mut strikes: u32 = 0;
+
+    while BackgroundWorker::wait_latch(Some(WATCHDOG_INTERVAL)) {
         if BackgroundWorker::sighup_received() {
             log!("pg_resp: SIGHUP received (config reload not yet implemented; GUCs here require a restart)");
+        }
+
+        // 1. Did the server thread die outright?
+        if server_died.load(Ordering::SeqCst) {
+            log!("pg_resp: server thread is gone; exiting so the postmaster restarts this worker");
+            fatal_restart("pg_resp server thread exited unexpectedly");
+        }
+
+        // 2. Is it still answering? A thread can be alive and wedged — that is
+        //    the silent-zombie state this exists to catch, and the one a mere
+        //    "is the process running" check reports as healthy.
+        match probe.probe() {
+            Ok(()) => strikes = 0,
+            Err(e) => {
+                strikes += 1;
+                log!(
+                    "pg_resp: watchdog probe of {probe_addr} failed ({e}); strike {strikes} of {WATCHDOG_STRIKES}"
+                );
+                // Force a fresh connection next time: a cached socket that has
+                // gone bad would keep failing for reasons of its own.
+                probe.disconnect();
+                if strikes >= WATCHDOG_STRIKES {
+                    fatal_restart("pg_resp RESP service stopped answering");
+                }
+            }
         }
     }
 
@@ -322,11 +401,84 @@ pub extern "C-unwind" fn background_worker_main(_arg: pg_sys::Datum) {
     log!("pg_resp: exiting cleanly");
 }
 
+/// Exit the worker so the postmaster restarts it (S6).
+///
+/// `ereport!(FATAL)` rather than `std::process::exit`, for two reasons. It is
+/// the PG-native way to end a worker: it logs at FATAL through the normal
+/// channel and then calls `proc_exit(1)`, running Postgres's own shmem-detach
+/// and cleanup instead of abandoning them. And it keeps every PG FFI call on
+/// the registered main thread where iron rule 1 requires it — which is exactly
+/// why the server thread flags the condition rather than exiting by itself.
+///
+/// Exit status 1 is what Postgres reads as "child exited on a FATAL error": the
+/// worker is restarted after `bgw_restart_time` *without* the cluster-wide
+/// crash-recovery cycle that an abnormal (signal, or any other status) death
+/// triggers. Verified empirically rather than assumed — see
+/// `tests/lifecycle/README.md`.
+fn fatal_restart(reason: &str) -> ! {
+    ereport!(
+        FATAL,
+        PgSqlErrorCode::ERRCODE_INTERNAL_ERROR,
+        format!("{reason}; restarting the pg_resp background worker")
+    );
+}
+
 struct Conn {
     stream: MioTcpStream,
     read_buf: Vec<u8>,
+    /// Replies produced but not yet fully written to the socket.
     write_buf: Vec<u8>,
+    /// How many bytes of `write_buf` have already reached the kernel. Tracked
+    /// as a cursor rather than by draining the front of the buffer, so a
+    /// partial write costs nothing extra.
+    write_pos: usize,
+    /// Whether this connection is currently registered for WRITABLE as well as
+    /// READABLE. Re-registering on every event would be a wasted syscall, so
+    /// the current state is remembered.
+    want_write: bool,
+    /// Set by QUIT (or a protocol error): close as soon as the pending reply
+    /// has been flushed, never before, or the client loses the answer it is
+    /// still waiting for.
+    close_after_flush: bool,
     conn_state: dispatch::ConnState,
+}
+
+/// Outcome of trying to push `write_buf` to the socket.
+enum FlushOutcome {
+    /// Everything buffered has reached the kernel.
+    Drained,
+    /// The socket is full; the rest is still buffered and WRITABLE interest is
+    /// needed to finish.
+    Pending,
+    /// Unrecoverable; drop the connection.
+    Failed,
+}
+
+/// Write as much of `conn.write_buf` as the socket will take.
+///
+/// This is the fix for a real bug, not a hypothetical one: the previous code
+/// called `write_all` on a **non-blocking** socket. `write_all` treats
+/// `WouldBlock` as a hard error and returns, so the moment a reply did not fit
+/// in the socket buffer the remaining bytes were silently dropped and the
+/// client was left with a truncated reply on a desynchronized stream. It never
+/// showed up in Phase 1/2 testing because localhost socket buffers swallow
+/// small replies whole — it needs a big reply or a slow reader, which is
+/// exactly what bible §10's 16KB-value / pipeline-16 benchmark arms produce.
+fn flush_writes(conn: &mut Conn) -> FlushOutcome {
+    while conn.write_pos < conn.write_buf.len() {
+        match conn.stream.write(&conn.write_buf[conn.write_pos..]) {
+            Ok(0) => return FlushOutcome::Failed,
+            Ok(n) => conn.write_pos += n,
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                return FlushOutcome::Pending
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => return FlushOutcome::Failed,
+        }
+    }
+    conn.write_buf.clear();
+    conn.write_pos = 0;
+    FlushOutcome::Drained
 }
 
 /// How often the server thread runs an active TTL sweep (bible §3.5: "active
@@ -375,6 +527,15 @@ fn server_loop(
             continue;
         }
 
+        // Deliberate top-level panic for S6 testing. Checked here, outside the
+        // per-connection fence, because that fence is what stops an ordinary
+        // dispatch panic from reaching the top level — so exercising the
+        // top-level path needs a panic raised from the loop body itself.
+        #[cfg(feature = "debug_panic")]
+        if DEBUG_PANIC_TOPLEVEL.swap(false, Ordering::SeqCst) {
+            panic!("deliberate top-level panic (debug_panic feature)");
+        }
+
         // Active TTL sweep (bible §3.5), piggybacked on this same poll tick
         // — runs whether this iteration was woken by real I/O or just the
         // timeout, so it still happens on an idle server.
@@ -398,6 +559,9 @@ fn server_loop(
                                         stream,
                                         read_buf: Vec::new(),
                                         write_buf: Vec::new(),
+                                        write_pos: 0,
+                                        want_write: false,
+                                        close_after_flush: false,
                                         conn_state: dispatch::ConnState::default(),
                                     },
                                 );
@@ -412,6 +576,26 @@ fn server_loop(
                 }
             } else {
                 let token = event.token();
+                // A WRITABLE-only wakeup means "the socket has room again" —
+                // finish the pending reply, and do not try to read.
+                if event.is_writable() && !event.is_readable() {
+                    let keep = match conns.get_mut(&token) {
+                        Some(conn) => match flush_writes(conn) {
+                            FlushOutcome::Drained => !conn.close_after_flush,
+                            FlushOutcome::Pending => true,
+                            FlushOutcome::Failed => false,
+                        },
+                        None => false,
+                    };
+                    if keep {
+                        if let Some(conn) = conns.get_mut(&token) {
+                            reconcile_interest(&poll, token, conn);
+                        }
+                    } else if let Some(mut conn) = conns.remove(&token) {
+                        let _ = poll.registry().deregister(&mut conn.stream);
+                    }
+                    continue;
+                }
                 // Primary panic fence (pgrx-patterns skill §8.8): D4's
                 // single-threaded model means this one thread serves every
                 // connection. Without this, a panic dispatching one bad
@@ -441,10 +625,15 @@ fn server_loop(
                     }
                     None => false,
                 };
-                if !keep {
-                    if let Some(mut conn) = conns.remove(&token) {
-                        let _ = poll.registry().deregister(&mut conn.stream);
+                if keep {
+                    // Registering WRITABLE only while a reply is actually
+                    // pending keeps an idle connection from waking the loop on
+                    // every spurious writability notification.
+                    if let Some(conn) = conns.get_mut(&token) {
+                        reconcile_interest(&poll, token, conn);
                     }
+                } else if let Some(mut conn) = conns.remove(&token) {
+                    let _ = poll.registry().deregister(&mut conn.stream);
                 }
             }
         }
@@ -470,7 +659,6 @@ fn service_connection(
         }
     }
 
-    let mut should_close = false;
     loop {
         match parse_command(&conn.read_buf) {
             ParseOutcome::Complete { args, consumed } => {
@@ -490,7 +678,9 @@ fn service_connection(
                     );
                     reply.write_to(&mut conn.write_buf);
                     if is_quit {
-                        should_close = true;
+                        // Close only once the +OK has actually been flushed —
+                        // see close_after_flush.
+                        conn.close_after_flush = true;
                         break; // stop processing any further pipelined commands
                     }
                 }
@@ -500,19 +690,54 @@ fn service_connection(
             ParseOutcome::Invalid(msg) => {
                 let reply = resp_proto::Reply::error(format!("ERR Protocol error: {msg}"));
                 reply.write_to(&mut conn.write_buf);
-                let _ = conn.stream.write_all(&conn.write_buf);
-                return false; // desynced parser: close per resp-protocol skill's guidance
+                // Desynced parser: close per the resp-protocol skill — but
+                // still give the error reply its best chance to reach the
+                // client first, and let the WRITABLE path finish the job if it
+                // does not fit right now.
+                conn.close_after_flush = true;
+                break;
             }
         }
     }
 
-    if !conn.write_buf.is_empty() {
-        let write_ok = conn.stream.write_all(&conn.write_buf).is_ok();
-        conn.write_buf.clear();
-        if !write_ok {
-            return false;
-        }
+    // A peer that pipelines faster than it reads would otherwise make this
+    // buffer grow without bound.
+    if conn.write_buf.len() - conn.write_pos > MAX_PENDING_WRITE_BYTES {
+        server_log!(
+            "dropping a connection with {} bytes of unflushed replies (exceeds \
+             MAX_PENDING_WRITE_BYTES); the client is not reading its results",
+            conn.write_buf.len() - conn.write_pos
+        );
+        return false;
     }
 
-    !should_close
+    match flush_writes(conn) {
+        FlushOutcome::Drained => !conn.close_after_flush,
+        // Still owed bytes: keep the connection, and the caller will register
+        // WRITABLE so the rest goes out when the socket drains. This is the
+        // whole point of the fix — the loop must never sit and spin on one
+        // slow reader, and must never abandon the tail of a reply.
+        FlushOutcome::Pending => true,
+        FlushOutcome::Failed => false,
+    }
+}
+
+/// Keep a connection's poll registration in step with whether it owes bytes.
+fn reconcile_interest(poll: &Poll, token: Token, conn: &mut Conn) {
+    let needs_write = conn.write_pos < conn.write_buf.len();
+    if needs_write == conn.want_write {
+        return;
+    }
+    let interest = if needs_write {
+        Interest::READABLE | Interest::WRITABLE
+    } else {
+        Interest::READABLE
+    };
+    if poll
+        .registry()
+        .reregister(&mut conn.stream, token, interest)
+        .is_ok()
+    {
+        conn.want_write = needs_write;
+    }
 }
