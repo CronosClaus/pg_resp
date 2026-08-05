@@ -1,0 +1,59 @@
+# Demo 3 — rate limiter, the honesty demo (bible §11.3).
+#
+# Two arms, identical limiter binary, identical flags. The only difference is
+# which server answers, which is the whole point: the crossover number is only
+# meaningful if nothing else varies.
+#
+#   docker compose up -d --build pg_resp redis
+#   docker compose run --rm limiter --target pg_resp --addr pg_resp:6379 --duration 10s
+#   docker compose run --rm limiter --target redis   --addr redis:6379   --duration 10s
+#   docker compose down -v
+#
+# NOTE ON ARM PARITY: these two containers are NOT a substitute for the §10
+# benchmark grid. They share a host, run simultaneously, and use Docker's bridge
+# network, so both arms pay NAT and neither is core-pinned. That is acceptable
+# here because the deliverable is a crossover ORDER OF MAGNITUDE from a
+# like-for-like pair, not a ranked throughput figure — and both arms pay the same
+# tax. The published crossover number is measured on the benchmark box under the
+# ENV.md protocol; this compose file is the reproducible demo of it.
+services:
+  pg_resp:
+    build:
+      context: ../..
+      dockerfile: docker/pg_resp.Dockerfile
+    environment:
+      POSTGRES_PASSWORD: postgres
+    # Test-only override, identical in intent to demo 2's: pg_resp.bind_address
+    # defaults to 127.0.0.1 (D6's real security default, unchanged in the image),
+    # and a loopback-bound listener inside a container netns cannot accept traffic
+    # arriving on eth0, so a sibling container could not reach it at all. This is
+    # a harness necessity, not a deployment recommendation — see docs/ops.md.
+    command: ["postgres", "-c", "pg_resp.bind_address=0.0.0.0"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  redis:
+    image: redis:8.2-alpine
+    # Cache-tuned to match the R-opt arm of bible §10: persistence off, a real
+    # cache bound, LRU eviction. Comparing against a snapshotting Redis would
+    # flatter pg_resp for a reason unrelated to either design.
+    command: >
+      redis-server --save "" --appendonly no
+      --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  limiter:
+    build:
+      context: ./limiter
+    depends_on:
+      pg_resp:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
