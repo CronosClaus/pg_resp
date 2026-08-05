@@ -6,6 +6,122 @@ fn t0() -> Instant {
 }
 
 #[test]
+fn clear_empties_store_and_resets_used_bytes() {
+    let mut s = Store::new();
+    let now = t0();
+    s.set(now, b"a", b"1".to_vec(), Expiry::None, Condition::None, false);
+    s.set(now, b"b", b"2".to_vec(), Expiry::None, Condition::None, false);
+    s.clear();
+    assert_eq!(s.len(), 0);
+    assert_eq!(s.used_bytes(), 0);
+    assert_eq!(s.get(now, b"a"), None);
+}
+
+#[test]
+fn persist_removes_ttl_and_returns_true() {
+    let mut s = Store::new();
+    let now = t0();
+    s.set(
+        now,
+        b"k",
+        b"v".to_vec(),
+        Expiry::At(now + Duration::from_secs(10)),
+        Condition::None,
+        false,
+    );
+    assert!(s.persist(now, b"k"));
+    assert_eq!(s.ttl_seconds(now, b"k"), -1);
+}
+
+#[test]
+fn persist_on_key_without_ttl_or_missing_returns_false() {
+    let mut s = Store::new();
+    let now = t0();
+    assert!(!s.persist(now, b"missing"));
+    s.set(now, b"k", b"v".to_vec(), Expiry::None, Condition::None, false);
+    assert!(!s.persist(now, b"k"));
+}
+
+#[test]
+fn random_key_none_on_empty_store() {
+    let mut s = Store::new();
+    assert_eq!(s.random_key(t0()), None);
+}
+
+#[test]
+fn random_key_returns_an_existing_key() {
+    let mut s = Store::new();
+    let now = t0();
+    s.set(now, b"only", b"v".to_vec(), Expiry::None, Condition::None, false);
+    assert_eq!(s.random_key(now), Some(b"only".to_vec()));
+}
+
+#[test]
+fn get_del_returns_value_and_removes_key() {
+    let mut s = Store::new();
+    let now = t0();
+    s.set(now, b"k", b"v".to_vec(), Expiry::None, Condition::None, false);
+    assert_eq!(s.get_del(now, b"k"), Some(b"v".to_vec()));
+    assert_eq!(s.get(now, b"k"), None);
+}
+
+#[test]
+fn get_del_on_missing_key_returns_none() {
+    let mut s = Store::new();
+    assert_eq!(s.get_del(t0(), b"missing"), None);
+}
+
+#[test]
+fn get_ex_with_no_option_leaves_ttl_untouched() {
+    let mut s = Store::new();
+    let now = t0();
+    s.set(
+        now,
+        b"k",
+        b"v".to_vec(),
+        Expiry::At(now + Duration::from_secs(10)),
+        Condition::None,
+        false,
+    );
+    assert_eq!(s.get_ex(now, b"k", None), Some(b"v".to_vec()));
+    assert_eq!(s.ttl_seconds(now, b"k"), 10);
+}
+
+#[test]
+fn get_ex_with_persist_option_clears_ttl() {
+    let mut s = Store::new();
+    let now = t0();
+    s.set(
+        now,
+        b"k",
+        b"v".to_vec(),
+        Expiry::At(now + Duration::from_secs(10)),
+        Condition::None,
+        false,
+    );
+    assert_eq!(s.get_ex(now, b"k", Some(Expiry::None)), Some(b"v".to_vec()));
+    assert_eq!(s.ttl_seconds(now, b"k"), -1);
+}
+
+#[test]
+fn get_ex_with_at_option_sets_new_ttl() {
+    let mut s = Store::new();
+    let now = t0();
+    s.set(now, b"k", b"v".to_vec(), Expiry::None, Condition::None, false);
+    assert_eq!(
+        s.get_ex(now, b"k", Some(Expiry::At(now + Duration::from_secs(30)))),
+        Some(b"v".to_vec())
+    );
+    assert_eq!(s.ttl_seconds(now, b"k"), 30);
+}
+
+#[test]
+fn get_ex_on_missing_key_returns_none() {
+    let mut s = Store::new();
+    assert_eq!(s.get_ex(t0(), b"missing", None), None);
+}
+
+#[test]
 fn eviction_kicks_in_when_over_budget() {
     // Small enough budget that a handful of entries must trigger eviction.
     let mut s = Store::with_max_memory(PER_ENTRY_OVERHEAD_BYTES * 3);

@@ -341,6 +341,97 @@ impl Store {
         }
     }
 
+    /// FLUSHDB/FLUSHALL (bible §3.4 T1 — single-db model, so both are
+    /// equivalent per bible §3.6 "SELECT accept db 0 only"). Does not touch
+    /// stats counters (hits/misses/evictions are lifetime counters, matching
+    /// `INFO`'s own semantics of not resetting on a data flush).
+    pub fn clear(&mut self) {
+        self.map.clear();
+        self.used_bytes = 0;
+    }
+
+    /// PERSIST (bible §3.4 T2). Valkey semantics (docs/refs/valkey-notes.md):
+    /// integer 1 if a TTL was actually removed, 0 if the key is missing or
+    /// already had no TTL — these last two cases are indistinguishable by
+    /// design, matching Valkey.
+    pub fn persist(&mut self, now: Instant, key: &[u8]) -> bool {
+        self.expire_if_needed(key, now);
+        match self.map.get_mut(key) {
+            Some(entry) if entry.expires_at.is_some() => {
+                entry.expires_at = None;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// RANDOMKEY (bible §3.4 T2). `None` on an empty store. Not a true
+    /// uniform random pick (iterates HashMap's own arbitrary-but-not
+    /// necessarily-uniform order and takes the first live entry) — matches
+    /// this crate's existing "correctness first" sampling philosophy
+    /// (bible §3.5's CLOCK-LRU sampling has the same documented simplicity).
+    pub fn random_key(&mut self, now: Instant) -> Option<Vec<u8>> {
+        let expired: Vec<Box<[u8]>> = self
+            .map
+            .iter()
+            .take(1)
+            .filter(|(_, e)| !Self::is_live(e, now))
+            .map(|(k, _)| k.clone())
+            .collect();
+        for k in expired {
+            self.remove_accounted(&k);
+        }
+        self.map.keys().next().map(|k| k.to_vec())
+    }
+
+    /// GETDEL (bible §3.4 T2): atomic get-then-delete. `None` if missing.
+    pub fn get_del(&mut self, now: Instant, key: &[u8]) -> Option<Vec<u8>> {
+        self.expire_if_needed(key, now);
+        match self.map.get(key) {
+            Some(e) => {
+                let value = e.value.clone();
+                self.hits += 1;
+                self.remove_accounted(key);
+                Some(value)
+            }
+            None => {
+                self.misses += 1;
+                None
+            }
+        }
+    }
+
+    /// GETEX (bible §3.4 T2): get, optionally updating/clearing TTL in the
+    /// same call. `expiry: None` means "leave the TTL exactly as-is" (plain
+    /// GETEX with no option) — distinct from `Expiry::None` on `set`, which
+    /// means "clear it"; GETEX's own PERSIST option maps to
+    /// `Some(Expiry::None)` here to make that distinction explicit at the
+    /// call site.
+    pub fn get_ex(&mut self, now: Instant, key: &[u8], expiry: Option<Expiry>) -> Option<Vec<u8>> {
+        self.expire_if_needed(key, now);
+        let value = match self.map.get(key) {
+            Some(e) => {
+                self.hits += 1;
+                e.value.clone()
+            }
+            None => {
+                self.misses += 1;
+                return None;
+            }
+        };
+        if let Some(expiry) = expiry {
+            let new_expires_at = match expiry {
+                Expiry::None => None,
+                Expiry::KeepTtl => self.map.get(key).and_then(|e| e.expires_at),
+                Expiry::At(deadline) => Some(deadline),
+            };
+            if let Some(entry) = self.map.get_mut(key) {
+                entry.expires_at = new_expires_at;
+            }
+        }
+        Some(value)
+    }
+
     /// Count of keys actually removed (expired keys don't count — they're
     /// already logically gone).
     pub fn del(&mut self, now: Instant, keys: &[&[u8]]) -> u64 {
