@@ -65,6 +65,10 @@ const WATCHDOG_STRIKES: u32 = 3;
 /// every other connection is unaffected.
 const MAX_PENDING_WRITE_BYTES: usize = 64 * 1024 * 1024;
 
+/// How much already-flushed prefix to tolerate in a connection's write buffer
+/// before reclaiming it. See the drain in `flush_writes`.
+const WRITE_PREFIX_RECLAIM_BYTES: usize = 64 * 1024;
+
 /// Set by the `DEBUG PANIC-TOPLEVEL` command (only compiled with the
 /// `debug_panic` feature) to make the server loop panic *outside* the
 /// per-connection fence, which is the only way to exercise S6's top-level
@@ -470,7 +474,19 @@ fn flush_writes(conn: &mut Conn) -> FlushOutcome {
             Ok(0) => return FlushOutcome::Failed,
             Ok(n) => conn.write_pos += n,
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                return FlushOutcome::Pending
+                // Reclaim the already-sent prefix before parking. Without this,
+                // a long-lived connection that is perpetually a little behind
+                // keeps every byte it was ever sent: `write_pos` advances but
+                // the buffer only shrinks on a full drain, and further replies
+                // append behind the dead prefix. MAX_PENDING_WRITE_BYTES
+                // measures the *unsent remainder*, so it would not catch that
+                // growth. Draining costs one memmove of the live tail, and only
+                // once the dead prefix is large enough to be worth it.
+                if conn.write_pos >= WRITE_PREFIX_RECLAIM_BYTES {
+                    conn.write_buf.drain(..conn.write_pos);
+                    conn.write_pos = 0;
+                }
+                return FlushOutcome::Pending;
             }
             Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(_) => return FlushOutcome::Failed,
