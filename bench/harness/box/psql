@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# psql for the frozen bench box (box requirement 5: no new system packages).
+#
+# Two jobs, both of which are correctness requirements rather than conveniences:
+#   1. sweep.py --auth-from-pg reads pg_resp.password off the live instance
+#      instead of being handed a literal, so a run cannot silently measure the
+#      speed of refusing commands (ENV.md §4).
+#   2. A.3.1's G3-validity check: prove K-pg is PostgreSQL-backed by watching
+#      redka's tables grow, because an unusable DSN makes redka fall back to
+#      SQLite silently and answer every RESP command correctly anyway
+#      (progress report D.8).
+#
+# Client major version is matched to the server image (postgres:18).
+set -euo pipefail
+exec docker run --rm --network host -i postgres:18 psql "$@"

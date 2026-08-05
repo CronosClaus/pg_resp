@@ -276,10 +276,31 @@ def build_memtier_argv(args, cell: Cell) -> list[str]:
 def taskset_prefix(args) -> list[str]:
     """Pin memtier to the client cores (ENV.md §9). Absent = unpinned, and the
     raw header says so, because an unpinned client on a shared box is a
-    different experiment from a pinned one."""
-    if args.client_cpus:
+    different experiment from a pinned one.
+
+    On the official box memtier runs inside a container (the host is frozen as
+    bootstrapped and has no compiler), so the confinement is applied by
+    `docker --cpuset-cpus` in the wrapper rather than by taskset here. Wrapping
+    the *docker CLI* in taskset would pin an idle client process and leave
+    memtier itself free — a header that said `taskset -c 4-7` would then be
+    describing something that never happened.
+    """
+    if args.client_cpus and args.client_pin_mechanism == "taskset":
         return ["taskset", "-c", args.client_cpus]
     return []
+
+
+def client_pinning_note(args) -> str:
+    """What the raw header records about client confinement — mechanism
+    included, because the mechanism is the part a reader cannot re-derive."""
+    if not args.client_cpus:
+        return "UNPINNED (see ENV.md §9)"
+    if args.client_pin_mechanism == "taskset":
+        return f"taskset -c {args.client_cpus}"
+    return (
+        f"docker --cpuset-cpus {args.client_cpus} "
+        "(memtier runs containerised; see bench/harness/box/memtier_benchmark)"
+    )
 
 
 ARM_PORTS = {"P-def": 6379, "P-opt": 6379, "R-def": 6380, "R-opt": 6381,
@@ -505,8 +526,19 @@ def main() -> int:
     ap.add_argument(
         "--client-cpus",
         default=None,
-        help="taskset CPU list for memtier, e.g. 6-11 (ENV.md §9). Recorded in "
-        "the raw header.",
+        help="CPU list memtier is confined to, e.g. 6-11 (ENV.md §9). Recorded "
+        "in the raw header.",
+    )
+    ap.add_argument(
+        "--client-pin-mechanism",
+        default="taskset",
+        choices=["taskset", "docker-cpuset"],
+        help="HOW --client-cpus is enforced. 'taskset' for a native memtier "
+        "binary (dev box). 'docker-cpuset' when memtier runs containerised (the "
+        "official box is frozen as bootstrapped and cannot build it): the "
+        "wrapper passes --cpuset-cpus, and taskset is NOT prepended, because it "
+        "would pin the docker CLI and leave memtier unconfined while the header "
+        "claimed otherwise.",
     )
     ap.add_argument("--server-note", default="", help="version/image digest of the arm under test")
     ap.add_argument("--out-dir", default=str(RESULTS))
@@ -648,7 +680,7 @@ def main() -> int:
         "SET:GET, key-pattern G:G, key-maximum 1000000 (bible §10)",
         f"started (UTC)  : {started}",
         f"server note    : {args.server_note or '(none given)'}",
-        f"client pinning : {('taskset -c ' + args.client_cpus) if args.client_cpus else 'UNPINNED (see ENV.md §9)'}",
+        f"client pinning : {client_pinning_note(args)}",
         f"env class      : {args.env_class} — {ENV_CLASSES[args.env_class]}",
         f"publishable    : {'YES' if publishable else 'NO'}",
         "",

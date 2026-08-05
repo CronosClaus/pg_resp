@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# memtier_benchmark for the official bench box, which is frozen as bootstrapped
+# (docker, git, python3, tmux, rsync — no compiler, box requirement 5) and so
+# cannot build the client natively. Same pinned commit as the dev box
+# (272eeb647df5, docs/refs/PINS.md), built by docker/memtier.Dockerfile.
+#
+# Point sweep.py at this file: --memtier bench/harness/box/memtier_benchmark
+#
+# --network host so the client reaches every arm over the host's own loopback,
+# with no NAT and no userland proxy — identical to a native binary's path, which
+# is the property the whole arms.sh header exists to protect.
+#
+# MEMTIER_CPUSET is how client-core confinement is applied here. `taskset` on
+# this script would pin the docker CLI, not memtier, so sweep.py is told
+# --client-pin-mechanism docker-cpuset and skips its taskset prefix.
+set -euo pipefail
+
+IMAGE="${MEMTIER_IMAGE:-pg_resp-bench-memtier:pinned}"
+
+args=(run --rm --network host)
+if [[ -n "${MEMTIER_CPUSET:-}" ]]; then
+  args+=(--cpuset-cpus "$MEMTIER_CPUSET")
+fi
+
+exec docker "${args[@]}" "$IMAGE" memtier_benchmark "$@"
