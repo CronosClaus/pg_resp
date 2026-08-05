@@ -335,22 +335,34 @@ exclusive() {
   # that would make K-pg look worse, i.e. flatter pg_resp's structural claim.
   # So assert the config matches the arm.
   if [[ "$PG_MODE" == container ]] && docker inspect "$PG_CONTAINER" >/dev/null 2>&1; then
-    local pgargs
-    pgargs="$(docker inspect --format '{{join .Args " "}}' "$PG_CONTAINER" 2>/dev/null || true)"
+    # Ask the RUNNING SERVER, not the container arguments. The image preloads
+    # pg_resp via postgresql.conf.sample, so a K-pg instance that simply omitted
+    # the setting would have pg_resp loaded while its arguments showed nothing —
+    # a guard that passes for the wrong reason is worse than no guard.
+    local spl
+    spl="$(docker exec "$PG_CONTAINER" psql -U "$PG_USER" -d "$PG_DB" -p "$PG_PORT" \
+             -h 127.0.0.1 -tAc 'SHOW shared_preload_libraries' 2>/dev/null | tr -d '[:space:]' || true)"
+    if [[ -z "$spl" ]]; then
+      spl="(could not query)"
+    fi
     case "$keep" in
       P-*)
-        if [[ "$pgargs" != *pg_resp.so* ]]; then
-          echo "FAIL $keep: PostgreSQL container is not loading pg_resp.so (args: $pgargs)" >&2
+        if [[ "$spl" != *pg_resp* ]]; then
+          echo "FAIL $keep: server reports shared_preload_libraries='$spl' — pg_resp is not loaded" >&2
           return 1
         fi ;;
       K-pg)
-        if [[ "$pgargs" == *pg_resp.so* ]]; then
-          echo "FAIL K-pg: PostgreSQL container still loads pg_resp.so — pg_resp's" \
-               "bgworker would run through K-pg's entire measurement (args: $pgargs)" >&2
+        if [[ "$spl" == *pg_resp* ]]; then
+          echo "FAIL K-pg: server reports shared_preload_libraries='$spl' — pg_resp's" \
+               "bgworker would run through K-pg's entire measurement" >&2
+          return 1
+        fi
+        if [[ "$spl" == "(could not query)" ]]; then
+          echo "FAIL K-pg: could not confirm pg_resp is unloaded; refusing to measure" >&2
           return 1
         fi ;;
     esac
-    echo "OK   PostgreSQL container config matches $keep"
+    echo "OK   server reports shared_preload_libraries='$spl' — correct for $keep"
   fi
   echo "OK   only $keep is live"
 }
