@@ -90,7 +90,7 @@ tables — no mixed-protocol tables.** Stage A survives only as the v1 record in
 - [x] Harness: saturation sampling + live-config capture + warm-up v2 + curve.py golden test — **committed before any grid cell** (`c1921ce`, `4122315`, `9ffedfb`, `b6d38cc`)
 - [x] Grid launched detached — tmux session `grid`, started **2026-08-05T19:36:57Z** at head `b6d38cc`. ETA ~6.5 h (~02:00 UTC)
 - [x] Local drafts done while grid runs: BENCHMARKS.md prose (`1a4f704`), README first screen (`53d3b9f`), demo 3 built (`a06e104`)
-- [ ] Grid complete
+- [!] **Grid STOPPED at 12/108** — systemic harness failure, see "Grid stop" below. Box left UP. No protocol changed.
 - [ ] Raw results rsynced and **committed before analysis**
 - [ ] Curve tables v2 + publishability stamps + computed G3 verdict
 - [ ] W6 (RAM per 1M x 1 KB)
@@ -145,3 +145,93 @@ than re-deriving it.
    demands it: the peak 64 B comparison cells. Sampling itself runs on **every**
    cell and is committed either way, so the evidence exists even where the
    verdict is not enforced.
+
+
+---
+
+# GRID STOP — 2026-08-05T20:45Z, at 12/108 cells
+
+**Status: stopped under the authorized hard stop (systemic harness failure).
+Box left UP. No protocol change improvised. Awaiting a human decision.**
+
+## What happened
+
+Cell 13 (`P-def d16384-p1-c1`) sat on its warm-up for 25 minutes at **~24
+SETs/s** while the server burned **0.2% CPU**. At that rate a single 16 KB
+unpipelined warm-up is ~2.3 hours and the 16 KB third of the grid would take
+days, so the run was stopped rather than allowed to consume the night.
+
+## The cause, and the diagnosis I got wrong first
+
+**First diagnosis (WITHDRAWN):** a pg_resp bug. Operations arriving ~41 ms apart
+with an idle server is the Linux delayed-ACK signature, and pg_resp really does
+not call `set_nodelay(true)` on accepted sockets — only `resp-client` does, while
+Redis sets it on every connection. It was a coherent story with real supporting
+evidence.
+
+**The control experiment refutes it.** 16 KB, pipeline 1, one connection,
+SET-only, empty store:
+
+| arm | ops/s | avg latency |
+|---|---|---|
+| P-opt (pg_resp) | 24.55 | 40.76 ms |
+| R-opt (Redis) | 24.37 | 41.04 ms |
+| V-opt (Valkey) | 24.38 | 41.03 ms |
+| K-pg (Redka) | 23.87 | 41.88 ms |
+
+All four collapse to the same ~41 ms per operation, and **pg_resp is marginally
+the fastest of the four**. Redis sets `TCP_NODELAY` and collapses anyway, which
+is what kills the hypothesis. So the cause is **client-side or environmental and
+applies equally to every server** — it is not a property of any of them.
+
+Two things were ruled out by measurement rather than by argument:
+
+- **Not eviction.** Measured on an empty store, 300 requests, against a
+  16,000-entry cap. The collapse is present with no eviction possible.
+- **Not payload size alone.** The same 16 KB payload at pipeline 16 gives
+  **62,412 ops/s**. Only the unpipelined case collapses.
+
+The missing `TCP_NODELAY` on accepted sockets is still a real hygiene gap worth
+fixing, and it is **not** the cause of this. It must not be reported as such.
+
+## Why stopping was the right call regardless of the hours lost
+
+Those 18 cells (`d16384` x `p1` x 3 connection counts x 6 arms) would have
+published **"every cache in the comparison does ~24 ops/s at 16 KB"**. That
+number is ~99.9% delayed-ACK timer and says nothing about any server, in either
+direction. It would have been the most misleading table in the document, and it
+would have arrived wearing a full protocol: 3 x 60 s, spread-gated, saturation
+sampled, config verified.
+
+## A gap in the hard stop itself
+
+2 of the 12 completed cells (**17%**) are UNPUBLISHABLE on spread — 8.47% and
+27.23%, both `P-def` at pipeline 16, the highest-throughput configurations. The
+hard stop counts only **VOIDs** (`rc != 0`); an unpublishable-but-successful cell
+exits 0. **A grid in which every cell exceeded the spread gate would never have
+tripped the 20% stop.** That is a real hole in the guardrail, not a nuisance.
+
+## What is preserved
+
+12 cells (all `P-def`, 64 B and 1 KB), raw artifacts + run log + progress TSV,
+committed at `e644778`. These payloads are unaffected by the 41 ms artefact
+(1 KB unpipelined measures 25,753 ops/s at 38 us) and remain valid data.
+
+## Decisions needed from the human — I am not authorized to improvise these
+
+1. **The 16 KB workloads.** Bible §10 mandates 64 B / 1 KB / 16 KB. Options: (a)
+   root-cause the client-side stall first, (b) run 16 KB at pipeline 16 only and
+   document the exclusion, (c) publish the pipeline-1 16 KB cells labelled as
+   measuring the transport artefact rather than the servers. Any of these is a
+   protocol change.
+2. **Whether the spread gate should feed the hard stop**, so an all-unpublishable
+   grid stops itself.
+3. **Whether to fix the missing `TCP_NODELAY`** before the remaining cells. It is
+   a one-line product fix, but it changes the artifact under test and every
+   completed cell was measured without it.
+
+## Resume, once decided
+
+`bench/harness/grid.sh` is idempotent per cell: the 12 completed cells are
+skipped on relaunch. Restricting `SIZES`/`PIPES` in that script re-cuts the grid
+without touching anything else.
