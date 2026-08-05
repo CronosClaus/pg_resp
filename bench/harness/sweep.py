@@ -493,10 +493,14 @@ class CpuSampler(threading.Thread):
         self.interval = interval
         self.samples: list[float] = []
         self.raw: list[str] = []
-        self._stop = threading.Event()
+        # NOT `self._stop`: threading.Thread has a private _stop() method that
+        # join() calls, and shadowing it with an Event makes join() raise
+        # "TypeError: 'Event' object is not callable" after the run completes —
+        # i.e. it breaks the harness at the moment it tries to record results.
+        self._stop_evt = threading.Event()
 
     def run(self) -> None:
-        while not self._stop.is_set():
+        while not self._stop_evt.is_set():
             total = 0.0
             parts = []
             for name in self.names:
@@ -517,10 +521,10 @@ class CpuSampler(threading.Thread):
             # docker stats --no-stream itself costs ~0.5-1.5s, so this is a
             # best-effort ~1s cadence, not a guaranteed one. The sample count is
             # recorded so a reader can see the real cadence.
-            self._stop.wait(self.interval)
+            self._stop_evt.wait(self.interval)
 
     def stop(self) -> None:
-        self._stop.set()
+        self._stop_evt.set()
 
     def verdict(self, threshold: float) -> tuple[bool, str]:
         if not self.samples:
