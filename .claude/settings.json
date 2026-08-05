@@ -1,8 +1,5 @@
 {
   "model": "opus",
-  "env": {
-    "CLAUDE_CODE_SUBAGENT_MODEL": "haiku"
-  },
   "permissions": {
     "allow": [
       "Bash(cargo:*)",

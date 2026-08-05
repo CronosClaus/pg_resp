@@ -236,7 +236,7 @@ Benchmark protocol §10 executed; README with positioning table (§2), honest nu
 
 ### v0.2 backlog (logged, not planned)
 
-DSA/dshash true shared-memory store (direct SQL reads without loopback), thread-per-core sharding, pub/sub↔LISTEN/NOTIFY bridge, RESP3, MULTI/EXEC, hashes/lists, metrics via pg_stat-style view, TLS.
+DSA/dshash true shared-memory store (direct SQL reads without loopback), thread-per-core sharding, pub/sub↔LISTEN/NOTIFY bridge, RESP3, MULTI/EXEC, hashes/lists, metrics via pg_stat-style view, TLS, **demo 1 (API cache — cut from §11 in Phase 4)**, **jemalloc as the Rust `global_allocator` behind a feature flag** (pg_resp currently uses glibc malloc while Redis/Valkey use jemalloc 5.3.0 — an unmatched variable in the §10 RAM metric, documented in `bench/results/ENV.md` §10; deliberately **not** changed during Phase 4, since swapping the allocator mid-benchmark-phase would invalidate both the 96-byte accounting constant and every number measured against it), **`bytea` variant of `resp.get`**, **additional `resp.evict` key-column types**, **a tighter `PER_ENTRY_OVERHEAD_BYTES` measurement**.
 
 ---
 
@@ -365,7 +365,7 @@ The extension must be **boring to a Postgres reviewer**:
 
 | # | app | stack | what the comparison *means* |
 |---|---|---|---|
-| 1 | **API cache** — user-profile endpoint, cache-aside | Go or Node, docker-compose A: app+PG+Redis (3 containers) vs B: app+PG/pg_resp (2) | **ops consolidation**: identical client code (port change only), end-to-end p99 within noise because app overhead dominates; the diff that matters is the compose file shrinking |
+| 1 | ~~**API cache** — user-profile endpoint, cache-aside~~ **CUT in Phase 4 → v0.2 backlog** | Go or Node, docker-compose A: app+PG+Redis (3 containers) vs B: app+PG/pg_resp (2) | **ops consolidation**: identical client code (port change only), end-to-end p99 within noise because app overhead dominates; the diff that matters is the compose file shrinking. **Cut because its stated meaning is already carried by two cheaper artifacts**: the README's §2 positioning table shows the container-count argument directly, and the Phase 4 G1 quickstart gate measures the "one `docker run`" claim end to end. Building a third app to re-demonstrate "the compose file is shorter" was the lowest-value item in the phase. Decided at the Phase 4 kickoff, logged in `reports/phase4.md` |
 | 2 | **price catalog with trigger invalidation** | same app; arm A does app-side invalidation with a deliberately realistic bug (one code path forgets); arm B uses `resp.evict` trigger | **correctness as schema property**: measure *stale-serve count* under a write storm — A serves stale reads until the bug is found, B's staleness is bounded at commit+p99<5ms. This is the moat demo and the launch-post centerpiece |
 | 3 | **rate limiter** — INCR+EXPIRE per API key, synthetic flood | tiny load generator | **honesty**: raw ceiling where Redis wins; publish the crossover analysis ("if you need > X ops/s of pure rate-limiting, keep Redis — below it, the second service isn't buying you anything") |
 

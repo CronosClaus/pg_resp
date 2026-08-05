@@ -1,7 +1,7 @@
 ---
 name: bench-runner
 description: Executes benchmark runs per bible §10 (memtier_benchmark arms and workloads) and the Phase 2 soak. Use for any performance measurement task. Returns median tables and RSS trend only, raw output goes to bench/results/.
-model: haiku
+model: sonnet
 tools: Bash, Read, Write
 ---
 Follow `.claude/skills/bench-harness` exactly — arms, workloads, environment checklist. Do not invent flag combinations.

@@ -373,3 +373,66 @@ And one thing it adds:
 Recorded here rather than quietly dropped, because a plausible-sounding
 magnitude that nobody re-derived is exactly the failure iron rule 7 exists to
 prevent, and this one was mine.
+
+## 12. Official-box acceptance criterion per cell
+
+Every published cell is **3 × 60 s** (bible §10), and:
+
+```
+spread = (max_run_ops - min_run_ops) / median_run_ops   must be <= 8%
+```
+
+If a cell exceeds 8%, it is **re-run once** and the outcome flagged either way;
+both attempts stay committed. `sweep.py` computes this from memtier's per-run
+`RUN #N RESULTS` sections (`--print-all-runs`, added automatically whenever
+`--run-count > 1`), records all three figures in the artifact header, and
+**refuses to mark a cell publishable unless the spread is within threshold** —
+so an unstable cell cannot silently become a README number.
+
+Two related points about how the headline figure is chosen:
+
+- **The reported figure is the median *run*, not a column-wise median and not
+  memtier's `AGGREGATED AVERAGE`** — that block is an arithmetic *mean*, while
+  bible §10 asks for medians. Taking the median run keeps every number in a
+  published row (ops/sec, p50, p99, p99.9, hit rate) belonging to one real run
+  rather than to a synthetic composite.
+- **A 1-run cell is never acceptable official data.** The harness stamps
+  "single run — no spread available" into any such artifact.
+
+### The cautionary artifact
+
+The reason this criterion exists in this form is §11: three short validation
+runs of one cell on WSL2 spanned **82k–213k ops/sec**, a spread of well over
+100%, with two of them at an *identical* 100% hit rate. Nothing in memtier's
+output flagged it; each run reported a clean summary table and a plausible
+number. Had any one of those been taken as "the" measurement, it would have
+been indistinguishable in a document from a real one. An 8% gate would have
+rejected all three.
+
+For calibration, a properly exclusive 3-run cell on the same box came in at
+`#1 242,710 / #2 237,043 / #3 246,022 ops/sec` → spread **3.70%**, which passes.
+So 8% is achievable here even under WSL2 once the arm is exclusive and the store
+is warm; it is not a lax threshold chosen to let results through.
+
+## 13. Topology must be re-derived on the box, never ported
+
+§9's CPU map is **specific to the development machine** and must not be copied.
+SMT sibling numbering is a kernel/firmware property that differs between
+machines — adjacent pairs (`0-1`, `2-3`, …) here, but commonly
+`0,N`/`1,N+1`/… elsewhere. Porting a pinning map to a box with the other
+convention silently puts client and server on the *same* physical cores, which
+looks like a tuned benchmark and behaves like a serialised one.
+
+Re-derive on the bench box and paste the output here before any official run:
+
+```bash
+lscpu | grep -E '^CPU\(s\)|^Thread|^Core|^Socket|Model name'
+for c in $(seq 0 $(($(nproc)-1))); do
+  printf 'cpu%-3s siblings: %s\n' "$c" \
+    "$(cat /sys/devices/system/cpu/cpu$c/topology/thread_siblings_list)"
+done
+cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor   # must read: performance
+```
+
+The governor line is the one WSL2 cannot answer at all (§1). On the dedicated
+box it must read `performance`, and its value goes in this file verbatim.

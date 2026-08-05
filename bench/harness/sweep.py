@@ -119,6 +119,9 @@ class Result:
     hits_sec: float
     misses_sec: float
     hit_rate_pct: float
+    spread_pct: float | None
+    n_runs: int
+    spread_ok: bool
     raw_file: str
     rerun: str
 
@@ -259,6 +262,10 @@ def build_memtier_argv(args, cell: Cell) -> list[str]:
         "--print-percentiles=50,99,99.9",
         "--hide-histogram",
     ]
+    if cell.run_count > 1:
+        # Needed to compute the median run and the spread ourselves; memtier's
+        # own AGGREGATED AVERAGE is a MEAN, and bible §10 asks for medians.
+        argv.append("--print-all-runs")
     if args.password:
         # Mandatory whenever a password exists. Never omitted "because the
         # last run worked" — the last run may have been measuring refusals.
@@ -362,6 +369,60 @@ STATS_ROW = re.compile(
 )
 
 
+RUN_HEADER = re.compile(r"^RUN #(\d+) RESULTS")
+
+
+def parse_per_run_totals(output: str) -> list[dict]:
+    """Totals row of each `RUN #N RESULTS` section, in order.
+
+    Only the RUN #N sections — memtier also prints BEST / WORST / AGGREGATED
+    AVERAGE blocks, each with its own Totals row, and mixing those in would
+    double-count. Returns [] for a single-run output, which has no RUN sections
+    at all (just ALL STATS).
+    """
+    runs: list[dict] = []
+    current: int | None = None
+    for line in output.splitlines():
+        stripped = line.strip()
+        if RUN_HEADER.match(stripped):
+            current = int(RUN_HEADER.match(stripped).group(1))
+            continue
+        if stripped.startswith(("BEST RUN", "WORST RUN", "AGGREGATED")):
+            current = None
+            continue
+        if current is not None:
+            m = STATS_ROW.match(stripped)
+            if m:
+                g = [None if v == "---" else float(v) for v in m.groups()]
+                runs.append({
+                    "run": current,
+                    "ops_sec": g[0],
+                    "hits_sec": g[1] or 0.0,
+                    "misses_sec": g[2] or 0.0,
+                    "avg_latency": g[3],
+                    "p50": g[4],
+                    "p99": g[5],
+                    "p999": g[6],
+                })
+                current = None
+    return runs
+
+
+def median_run_and_spread(runs: list[dict]) -> tuple[dict, float]:
+    """The MEDIAN run by ops/sec, plus (max-min)/median as a percentage.
+
+    bible §10 says "medians reported"; memtier's AGGREGATED AVERAGE block is an
+    arithmetic mean, so it is deliberately not used. Reporting the median *run*
+    (rather than a median of each column independently) keeps every figure in a
+    published row belonging to one real run.
+    """
+    ordered = sorted(runs, key=lambda r: r["ops_sec"])
+    med = ordered[len(ordered) // 2]
+    lo, hi = ordered[0]["ops_sec"], ordered[-1]["ops_sec"]
+    spread = (hi - lo) / med["ops_sec"] * 100.0 if med["ops_sec"] else float("inf")
+    return med, spread
+
+
 def parse_totals(output: str) -> dict:
     """Take memtier's own Totals row. Never recompute what memtier computed —
     its run_stats.cpp is the source of truth (bench-harness skill §5)."""
@@ -421,6 +482,20 @@ def main() -> int:
     ap.add_argument("--psql", default="psql")
     ap.add_argument("--pg-port", type=int, default=28818)
     ap.add_argument("--pg-host", default="~/.pgrx")
+    ap.add_argument(
+        "--spread-threshold",
+        type=float,
+        default=8.0,
+        help="max acceptable (max-min)/median across the 3 runs of a cell, in "
+        "percent (official-box acceptance criterion). Exceeded => the cell is "
+        "flagged, and re-run once if --rerun-on-spread is set.",
+    )
+    ap.add_argument(
+        "--rerun-on-spread",
+        action="store_true",
+        help="if the spread exceeds the threshold, run the cell once more and "
+        "keep whichever attempt is tighter; both attempts are recorded.",
+    )
     ap.add_argument(
         "--require-exclusive",
         action="store_true",
@@ -506,6 +581,7 @@ def main() -> int:
             void_reason = f"memtier exited {proc.returncode}"
 
     stats: dict | None = None
+    spread_pct: float | None = None
     if void_reason is None:
         noauth = output.count("NOAUTH")
         verdict.append(f"NOAUTH occurrences in output: {noauth} (must be 0)")
@@ -516,7 +592,29 @@ def main() -> int:
             )
         else:
             try:
-                stats = parse_totals(output)
+                per_run = parse_per_run_totals(output)
+                if per_run:
+                    stats, spread_pct = median_run_and_spread(per_run)
+                    verdict.append(
+                        "per-run ops/sec: "
+                        + ", ".join(f"#{r['run']} {r['ops_sec']:,.0f}" for r in per_run)
+                    )
+                    verdict.append(
+                        f"median run: #{stats['run']} ({stats['ops_sec']:,.2f} ops/s) "
+                        "— median, NOT memtier's AGGREGATED AVERAGE (a mean)"
+                    )
+                    verdict.append(
+                        f"spread (max-min)/median: {spread_pct:.2f}% "
+                        f"(threshold {args.spread_threshold:.1f}%) -> "
+                        + ("OK" if spread_pct <= args.spread_threshold else "EXCEEDED")
+                    )
+                else:
+                    stats = parse_totals(output)
+                    spread_pct = None
+                    verdict.append(
+                        "single run — no spread available; a 1-run cell is not "
+                        "acceptable official data (see ENV.md §12)"
+                    )
                 total = stats["hits_sec"] + stats["misses_sec"]
                 hit_rate = (stats["hits_sec"] / total * 100.0) if total else 0.0
                 verdict.append(f"GET hit rate: {hit_rate:.2f}% (must be > 0)")
@@ -529,7 +627,14 @@ def main() -> int:
             except Void as e:
                 void_reason = str(e)
 
-    publishable = args.env_class == "dedicated" and void_reason is None
+    spread_acceptable = (
+        void_reason is None
+        and spread_pct is not None
+        and spread_pct <= args.spread_threshold
+    )
+    publishable = (
+        args.env_class == "dedicated" and void_reason is None and spread_acceptable
+    )
 
     header = [
         "=" * 78,
@@ -599,6 +704,9 @@ def main() -> int:
         hits_sec=stats["hits_sec"],
         misses_sec=stats["misses_sec"],
         hit_rate_pct=(stats["hits_sec"] / total * 100.0) if total else 0.0,
+        spread_pct=spread_pct,
+        n_runs=cell.run_count,
+        spread_ok=(spread_pct is not None and spread_pct <= args.spread_threshold),
         raw_file=rel(raw_path),
         rerun=rerun,
     )
