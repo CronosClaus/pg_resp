@@ -12,6 +12,9 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
+mod scan;
+use scan::ScanRegistry;
+
 /// Rough fixed per-entry overhead (HashMap bucket + `Entry` struct fields +
 /// allocator bookkeeping for two heap allocations — key and value). This is
 /// an estimate, not a measurement: bible §3.5 says the real constant is
@@ -78,10 +81,28 @@ pub enum IncrError {
     Overflow,
 }
 
+/// Snapshot of the counters `INFO` reports (bible §5 Phase 2 "memory
+/// honesty" gate, satisfied via `INFO` rather than the Phase-3 `resp.stats()`
+/// SQL function — see project-bible.md's Phase 3 gate table for why the two
+/// must stay consistent once both exist).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Stats {
+    pub keys: usize,
+    pub used_bytes: usize,
+    pub max_memory_bytes: Option<usize>,
+    pub hits: u64,
+    pub misses: u64,
+    pub evictions: u64,
+}
+
 pub struct Store {
     map: HashMap<Box<[u8]>, Entry>,
     used_bytes: usize,
     max_memory_bytes: Option<usize>,
+    scan_registry: ScanRegistry,
+    hits: u64,
+    misses: u64,
+    evictions: u64,
 }
 
 impl Default for Store {
@@ -96,6 +117,10 @@ impl Store {
             map: HashMap::new(),
             used_bytes: 0,
             max_memory_bytes: None,
+            scan_registry: ScanRegistry::new(),
+            hits: 0,
+            misses: 0,
+            evictions: 0,
         }
     }
 
@@ -106,6 +131,10 @@ impl Store {
             map: HashMap::new(),
             used_bytes: 0,
             max_memory_bytes: Some(max_bytes),
+            scan_registry: ScanRegistry::new(),
+            hits: 0,
+            misses: 0,
+            evictions: 0,
         }
     }
 
@@ -191,6 +220,7 @@ impl Store {
             match victim {
                 Some(k) => {
                     self.remove_accounted(&k);
+                    self.evictions += 1;
                 }
                 None => break, // only `protect` left (or map only has protect) — stop
             }
@@ -223,10 +253,40 @@ impl Store {
         match self.map.get_mut(key) {
             Some(e) => {
                 e.clock_bit = true;
+                self.hits += 1;
                 Some(e.value.as_slice())
             }
-            None => None,
+            None => {
+                self.misses += 1;
+                None
+            }
         }
+    }
+
+    pub fn stats(&self) -> Stats {
+        Stats {
+            keys: self.map.len(),
+            used_bytes: self.used_bytes,
+            max_memory_bytes: self.max_memory_bytes,
+            hits: self.hits,
+            misses: self.misses,
+            evictions: self.evictions,
+        }
+    }
+
+    /// SCAN (bible §3.4 T1 tier). `cursor` 0 starts a new scan; any other
+    /// value continues a prior one. Returns `(next_cursor, keys_in_this_page)`
+    /// — `next_cursor == 0` means the scan is complete. See D10 (bible §12)
+    /// and `scan.rs` for the cursor-registry design (store-level, bounded,
+    /// idle-expiring, restart-on-miss).
+    pub fn scan(&mut self, now: Instant, cursor: u64, count: usize) -> (u64, Vec<Vec<u8>>) {
+        let map = &self.map;
+        self.scan_registry.scan(now, cursor, count, || {
+            map.iter()
+                .filter(|(_, e)| Self::is_live(e, now))
+                .map(|(k, _)| k.clone())
+                .collect()
+        })
     }
 
     pub fn set(
@@ -387,9 +447,13 @@ impl Store {
                 match self.map.get_mut(*key) {
                     Some(e) => {
                         e.clock_bit = true;
+                        self.hits += 1;
                         Some(e.value.clone())
                     }
-                    None => None,
+                    None => {
+                        self.misses += 1;
+                        None
+                    }
                 }
             })
             .collect()
