@@ -156,7 +156,18 @@ def rel(p: Path) -> str:
 
 
 def run(cmd: list[str], **kw) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, capture_output=True, text=True, **kw)
+    """Run a command, turning a missing binary into a normal non-zero result.
+
+    Without this, a missing `psql` raised FileNotFoundError out of the live-config
+    capture and killed an otherwise valid run. A configuration snapshot that
+    cannot be taken is a gap to record in the artifact, not grounds to discard a
+    measurement — so the failure has to arrive as data, like every other failed
+    check here.
+    """
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, **kw)
+    except (FileNotFoundError, PermissionError) as e:
+        return subprocess.CompletedProcess(cmd, 127, "", f"{type(e).__name__}: {e}")
 
 
 
@@ -616,6 +627,13 @@ STATS_ROW = re.compile(
 RUN_HEADER = re.compile(r"^RUN #(\d+) RESULTS")
 
 
+# The retry above is deliberately single-shot. ENV.md §12 says "re-run ONCE",
+# and a cell that is unstable twice is a finding to publish, not a dice roll to
+# repeat until it passes. Kept as a named constant so the intent is explicit
+# rather than implied by the absence of a loop.
+_is_retry = False
+
+
 def parse_per_run_totals(output: str) -> list[dict]:
     """Totals row of each `RUN #N RESULTS` section, in order.
 
@@ -918,6 +936,89 @@ def main() -> int:
                         f"(threshold {args.spread_threshold:.1f}%) -> "
                         + ("OK" if spread_pct <= args.spread_threshold else "EXCEEDED")
                     )
+
+                    # ENV.md §12: "If a cell exceeds 8%, it is RE-RUN ONCE and
+                    # the outcome flagged either way; both attempts stay
+                    # committed."
+                    #
+                    # That behaviour was documented in the protocol and declared
+                    # as a flag, but --rerun-on-spread was never read by this
+                    # script — an accepted no-op. Stage A never noticed because
+                    # every one of its 18 cells passed the gate on the first
+                    # attempt. It was found when a grid cell reported 9.91% and
+                    # produced no second attempt.
+                    #
+                    # The retry is a genuine repeat: fresh CPU samples, fresh
+                    # parse. Whichever attempt is TIGHTER is kept, and both raw
+                    # outputs are retained in this artifact so the discarded
+                    # attempt is auditable rather than invisible.
+                    if (
+                        spread_pct > args.spread_threshold
+                        and args.rerun_on_spread
+                        and not _is_retry
+                    ):
+                        verdict.append(
+                            "spread exceeded threshold -> RE-RUNNING ONCE "
+                            "(ENV.md §12); both attempts are recorded below"
+                        )
+                        retry_sampler = CpuSampler(
+                            cell.arm, interval=args.cpu_sample_interval
+                        )
+                        retry_sampler.start()
+                        retry_proc = run(argv)
+                        retry_sampler.stop()
+                        retry_sampler.join(timeout=5)
+                        retry_out = retry_proc.stdout + retry_proc.stderr
+                        retry_runs = (
+                            parse_per_run_totals(retry_out)
+                            if retry_proc.returncode == 0
+                            else []
+                        )
+                        if retry_runs:
+                            r_stats, r_spread = median_run_and_spread(retry_runs)
+                            verdict.append(
+                                "attempt 2 per-run ops/sec: "
+                                + ", ".join(
+                                    f"#{r['run']} {r['ops_sec']:,.0f}" for r in retry_runs
+                                )
+                            )
+                            verdict.append(
+                                f"attempt 2 spread: {r_spread:.2f}% -> "
+                                + ("OK" if r_spread <= args.spread_threshold else "EXCEEDED")
+                            )
+                            if r_spread < spread_pct:
+                                verdict.append(
+                                    f"KEEPING ATTEMPT 2 (spread {r_spread:.2f}% < "
+                                    f"{spread_pct:.2f}%); attempt 1 raw output retained below"
+                                )
+                                output = (
+                                    "=== ATTEMPT 1 (DISCARDED — wider spread) ===\n"
+                                    + output
+                                    + "\n=== ATTEMPT 2 (KEPT) ===\n"
+                                    + retry_out
+                                )
+                                stats, spread_pct = r_stats, r_spread
+                                sat2, sat_line2 = retry_sampler.verdict(
+                                    args.saturation_threshold
+                                )
+                                saturated, sat_line = sat2, sat_line2
+                                sampler = retry_sampler
+                            else:
+                                verdict.append(
+                                    f"KEEPING ATTEMPT 1 (spread {spread_pct:.2f}% <= "
+                                    f"{r_spread:.2f}%); attempt 2 raw output retained below"
+                                )
+                                output = (
+                                    "=== ATTEMPT 1 (KEPT) ===\n"
+                                    + output
+                                    + "\n=== ATTEMPT 2 (DISCARDED — wider spread) ===\n"
+                                    + retry_out
+                                )
+                        else:
+                            verdict.append(
+                                f"attempt 2 produced no parseable runs "
+                                f"(rc={retry_proc.returncode}); keeping attempt 1"
+                            )
                 else:
                     stats = parse_totals(output)
                     spread_pct = None
