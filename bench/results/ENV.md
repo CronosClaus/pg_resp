@@ -742,3 +742,89 @@ point on the curve, so **hit rate is published in every cell** and should be rea
 alongside the ops figure. The direction is not uniformly favourable to either
 side: a hit returns 1 KB where a miss returns 5 bytes, so a *higher* hit rate is
 *more* work per operation.
+
+## 21. Two pre-Stage-A diagnostics, and one flagged anomaly
+
+### 21.1 The client is NOT the bottleneck — tested, after a first attempt that proved nothing
+
+A-smoke put five very different servers within 4% of one another (§19: 403k-419k
+ops/s for pg_resp, Redis and Valkey alike). Five independent implementations
+landing in a 4% band is the signature of a shared ceiling, and if that ceiling
+were `memtier_benchmark` on four cores then every in-memory arm's raw-ops number
+would be measuring the client.
+
+**The first attempt at this test was invalid and is recorded because the failure
+is instructive.** Cells were run back-to-back against one instance while varying
+client cores, and throughput appeared to *fall* as cores were added
+(706k on 4 cores, 467k on 6). But the store was filling across the sequence, so
+hit rate rose from 2.6% to 5.2% between cells — and a hit returns 1 KB where a
+miss returns 5 bytes. Two variables moved; the result meant nothing. This is
+§11's confound reappearing in a new costume, three sections after it was written
+down.
+
+Redone controlled: `FLUSHALL`, then an identical 30 s warm-up, then a 15 s
+measurement, varying **only** the client cpuset, with both cpusets disjoint from
+the server's `0-3` so neither test overlaps the server:
+
+| client cores | ops/s | hit rate | p99 |
+|---|---|---|---|
+| 2 (`6-7`) | 404,825 | 45.5% | 1.407 ms |
+| 4 (`4-7`) | 411,693 | 45.3% | 1.399 ms |
+| 2 (`6-7`), repeated | 415,289 | 45.3% | 1.423 ms |
+
+**Doubling the client's cores moves throughput by 1.7%, and the repeated 2-core
+cell came in highest of the three.** The client is not the limit; two cores
+saturate the same path four do. Spread across the three is 2.54%, inside the 8%
+criterion (§12) even at 15 s.
+
+So the ~410k ceiling at 1 KB / pipeline 16 belongs to the shared loopback +
+syscall + copy path — ~220 MB/s of payload — and not to memtier.
+
+**Consequence for how the 1 KB results must be read:** at this payload size the
+in-memory arms are transport-bound, so the raw-ops column does **not**
+discriminate between pg_resp, Redis and Valkey. A near-tie there is a property of
+the transport, and must not be presented as pg_resp matching Redis. It does
+discriminate K-pg by a wide margin, which is the comparison the structural claim
+actually rests on.
+
+### 21.2 FLAGGED ANOMALY: pg_resp ahead of Redis at 64 B
+
+Same controlled protocol (fresh store, equal 30 s warm-up, 15 s measurement,
+pipeline 16, 32 connections, client `4-7`, server `0-3`), varying payload size:
+
+| cell | arm | ops/s | hit rate | p50 | p99 |
+|---|---|---|---|---|---|
+| 64 B | **P-opt** | **1,038,644** | 100.0% | 0.495 ms | 0.599 ms |
+| 64 B | R-opt | 912,902 | 100.0% | 0.519 ms | 0.935 ms |
+| 1 KB | P-opt | 405,776 | 45.0% | 1.255 ms | 1.423 ms |
+| 1 KB | R-opt | 427,899 | 33.0% | 1.191 ms | 1.463 ms |
+
+At 64 B both arms sit at a **matched 100% hit rate** — 64 B x 1M keys fits inside
+both the 256 MB `maxmemory` and `pg_resp.max_memory`, so neither evicts and the
+usual hit-rate confound is absent. pg_resp comes out **13.8% ahead**.
+
+**This is treated as a suspected benchmark bug, not a result.** Bible §0.5 is
+explicit: "What this project is not: faster than Redis at raw ops/sec. If a
+report claims that, treat it as a benchmark bug." The pre-registered expected
+shape (§10) has R-opt/V-opt winning raw throughput by 2-6x. An outcome inverted
+from the pre-registration is exactly where a benchmark is least trustworthy and
+most flattering, so it does not enter any document as a win on this evidence.
+
+What is and is not controlled here, stated plainly:
+
+- **Controlled:** identical client, cores, warm-up, payload, ratio, key space,
+  pipeline and hit rate; both servers single-threaded for command execution;
+  both with persistence off; both over `--network host` loopback.
+- **Working against pg_resp:** it pays one `AUTH` per connection (the incumbents
+  are unauthenticated, §17) and uses glibc malloc against the incumbents'
+  jemalloc 5.3.0 (§10).
+- **Not yet excluded:** a single 15 s run per arm with no spread check; Redis's
+  `allkeys-lru` bookkeeping near a 256 MB cap that pg_resp's CLOCK-LRU may
+  account for differently; and whether Redis 8.2's default `io-threads` setting
+  leaves it doing less parallel I/O work than assumed.
+
+**Disposition:** re-measured under the full 3 x 60 s protocol in Stage B across
+all six arms and all three payload sizes, with the hit rate published per cell.
+If it survives that, it gets investigated further before it is believed — and if
+it survives investigation it gets published like any other number, including the
+part where it contradicts our own pre-registration.
