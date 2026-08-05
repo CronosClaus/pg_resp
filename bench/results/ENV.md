@@ -1105,3 +1105,74 @@ inert at this payload size, **not** as a performance improvement.
 Every cell measured before `5e725fb` is superseded and archived in
 `bench/results/grid-prefix-superseded/`. No published table mixes pre- and
 post-fix figures.
+
+## 25. 16 KB is PARKED, and the honest state of that investigation
+
+§22 established that 16 KB **unpipelined** measures a delayed-ACK timer, and
+excluded it. The remaining 16 KB cells were to run at pipeline 16. They do not
+work either, and **the cause is not established**. This section records exactly
+what is and is not known, because a half-diagnosed exclusion dressed up as a
+finished one is worse than an admitted gap.
+
+### What the grid produced
+
+`P-def d16384-p16-c1`, full protocol, retry fired (attempt 1 spread 65.40% ->
+attempt 2 10.94%, tighter attempt kept):
+
+```
+ops/s 4,609   p99 41.215 ms   hit 8.5%   spread 10.94% -> UNPUBLISHABLE
+server CPU: 92 samples — min 0.0%  median 1.8%  peak 5.3%
+```
+
+A p99 pinned at 41.2 ms with the server essentially idle is the same signature as
+§22. But at pipeline 16, which §22's mechanism does not predict.
+
+### Two hypotheses, both refuted by measurement
+
+**(1) "The 16 KB reply exceeds the server's send buffer."** Plausible — the
+default is 16,384 B in both directions, and a 16 KB GET reply is over it. Refuted:
+with a warm 5,000-key store where every GET hits and every reply is a real 16 KB,
+GET-only runs at **46,589 ops/s @ 0.344 ms** and mixed 1:10 at **13,468 ops/s @
+1.188 ms**. No stall. 16 KB replies are fine.
+
+**(2) "It is payload size at pipeline 16."** Refuted: SET-only at 16 KB /
+pipeline 16 runs at **58,278 ops/s**, and the earlier probe of the same
+size/pipeline reached 116,318 ops/s.
+
+An earlier probe that appeared to clear 16 KB / p16 / 1:10 was itself invalid and
+is recorded as such: the store was **empty**, so every GET missed and returned 5
+bytes. It never exercised a 16 KB reply at all. That is the second time in this
+investigation that an empty store made a payload-size question look answered
+(§22's eviction check was the first, where it was the correct control).
+
+### What distinguishes the failing cell
+
+The grid cell differs from every probe that works in three ways at once:
+200,000-request warm-up at 16 KB, a 1M-key gaussian space, and a store therefore
+pinned at its 256 MB cap — about **16,000 resident entries of 16 KB** — evicting on
+essentially every write, at an 8.5% hit rate. None of the working probes combine
+those.
+
+That is a hypothesis, not a finding. It is written here as a starting point, not a
+conclusion.
+
+### Disposition: parked, and stated as unmeasured
+
+**16 KB is dropped from this run entirely** — `WORKLOADS` in `grid.sh` is now
+64 B and 1 KB only, 12 workloads x 6 arms = 72 cells. The applicable rule is the
+standing one: a gate that fails twice for the same cause gets parked and
+documented rather than patched on the clock. It has now failed twice, and two
+hypotheses have died.
+
+Consequence, stated plainly rather than buried: **bible §10 specifies 64 B / 1 KB /
+16 KB, and this run delivers two of the three.** 16 KB is not "excluded because it
+is unfavourable" — the ~4,600 ops/s figure would sit between pg_resp's other
+results and would flatter nobody. It is excluded because nobody can currently say
+what it measures, and a number whose meaning is unknown is worth less than an
+acknowledged gap.
+
+What would resolve it, for whoever picks this up: reproduce with the grid's exact
+warm-up and key space, then bisect the three variables (warm-up volume, key-space
+size, at-cap eviction) one at a time. If the at-cap eviction path at large entry
+sizes turns out to be the cause, that is a **pg_resp finding** rather than a
+harness one and belongs in the ops documentation.

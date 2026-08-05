@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # STAGE B — the full approved grid of bible §10, warm-up v2.
 #
-#   6 arms x 15 workloads = 90 cells
-#   64 B and 1 KB at pipeline 1 and 16; 16 KB at pipeline 16 ONLY
-#   x connections 1 / 8 / 64.  16 KB at pipeline 1 is excluded as a transport
-#   artefact — see the WORKLOADS comment below and ENV.md §22.
+#   6 arms x 12 workloads = 72 cells
+#   64 B and 1 KB at pipeline 1 and 16, x connections 1 / 8 / 64.
+#   16 KB is PARKED for this run — see the WORKLOADS comment and ENV.md §22, §25.
 #   each cell 3 x 60 s, spread-gated at 8%, one arm live at a time
 #
 # Plus two labelled side sets that never mix into the ranked grid:
@@ -69,7 +68,13 @@ CONNS=(1 8 64)
 # No in-box fix exists: raising tcp_wmem needs root (unavailable), memtier at the
 # pinned commit exposes no send-buffer option, and --sysctl is refused under
 # --network host. Full record in bench/results/ENV.md §22.
-WORKLOADS=(64:1 64:16 1024:1 1024:16 16384:16)
+# 16 KB is PARKED ENTIRELY for this run, not merely excluded at pipeline 1.
+# Its p16 cells also come back artefactual (p99 ~41 ms with the server at 1.8%
+# CPU), and controlled probes do NOT reproduce that, so the cause is not yet
+# established. Parked under the "gate fails twice for the same cause -> park,
+# document, move on" rule rather than investigated further on the clock.
+# Full record: ENV.md §25.
+WORKLOADS=(64:1 64:16 1024:1 1024:16)
 
 ATTEMPTED=0
 VOIDED=0
