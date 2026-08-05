@@ -436,3 +436,211 @@ cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor   # must read: perform
 
 The governor line is the one WSL2 cannot answer at all (§1). On the dedicated
 box it must read `performance`, and its value goes in this file verbatim.
+
+---
+
+# The official benchmark box
+
+Everything above §13 was written on the WSL2 development machine. Everything
+from here down is the dedicated box, and it is the only environment whose
+numbers may be published (Phase 4 environment amendment).
+
+## 14. Box specification — frozen as bootstrapped
+
+| item | value |
+|---|---|
+| provider / type | Hetzner **CCX33** — dedicated vCPU |
+| CPU | AMD EPYC-Milan, **8 vCPU** = 4 physical cores x 2 threads, 1 NUMA node |
+| caches | L1d/L1i 128 KiB (4x), L2 2 MiB (4x), **L3 32 MiB, one shared instance** |
+| RAM | 30 GiB, **swap 0 B** |
+| disk | 225 GB, 215 GB free |
+| OS | Ubuntu **24.04.4** LTS |
+| kernel | **6.8.0-117-generic** |
+| virtualization | KVM (full) |
+| docker | **29.1.3**, storage driver `overlayfs`, cgroup v2 |
+| host user | `bench` (uid 1000, in group `docker`); root is never used |
+
+**The box is frozen as bootstrapped** (box requirement 5): no `apt upgrade`, no
+new system packages. What it actually shipped with is `git`, `curl`, `python3`,
+`tmux`, `rsync`, `ss` and docker — and **no compiler, no rust, no PostgreSQL,
+no memtier_benchmark, no psql, no redis-cli**.
+
+That constraint decides the topology of the whole run rather than merely
+inconveniencing it: **every arm, including P-def/P-opt, executes from a
+container.** There is no way to build a native PostgreSQL or a native
+memtier here, and copying the development machine's binaries over would link
+them against another distribution's libraries. So:
+
+| component | how it runs on the box |
+|---|---|
+| P-def / P-opt | `pg_resp:0.1.0-rc` from `docker/pg_resp.Dockerfile` (`postgres:18` base) — **the same artifact W9 ships and G1 measures** |
+| K-pg's PostgreSQL | same image, started with `pg-kpg.conf` and **without** `shared_preload_libraries` |
+| R-def / R-opt / V-opt | pinned upstream images, as on the dev box |
+| K-pg (redka) | built from `ref/redka` @ `d3c353f02470`, upstream's own Dockerfile |
+| memtier_benchmark | `docker/memtier.Dockerfile`, built from `ref/memtier_benchmark` @ `272eeb647df5` — **the same pinned commit the dev runs used** |
+| psql, redis-cli | `bench/harness/box/psql`, and arms.sh's containerised fallback |
+
+`arms.sh PG_MODE=container` exists for this. The upside is worth stating: P-*
+is now measured through the exact image an outsider will `docker run`, so the
+benchmark and the quickstart claim describe the same artifact.
+
+Nothing was hand-copied to the box. The repository is a fresh
+`git clone` of the public URL, and the two reference clones are checked out at
+their `PINS.md` commits and verified (`d3c353f02470`, `272eeb647df5`).
+
+## 15. CPU governor — NOT EXPOSED, and it does not block the run
+
+Box requirement 3: attempt `performance`, and if it is not exposed, record that
+and proceed.
+
+```
+$ cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
+cat: /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor: No such file or directory
+$ ls /sys/devices/system/cpu/cpu0/cpufreq/
+ls: cannot access '/sys/devices/system/cpu/cpu0/cpufreq/': No such file or directory
+```
+
+**Recorded verdict: "not exposed (cloud dedicated vCPU)".** The entire `cpufreq`
+subsystem is absent, not just the governor file — the guest kernel has no
+frequency-scaling interface because the hypervisor owns the P-states. There is
+nothing to set and nothing to read.
+
+This is a **weaker** limitation than WSL2's identical-looking absence (§1), and
+the reason is worth recording rather than glossing: a CCX33's vCPUs are backed
+by dedicated physical cores, so the usual reason to demand `performance` — a
+shared or idling core getting clocked down mid-run and turning a throughput
+measurement into a frequency measurement — is largely removed by the instance
+type. It is not removed entirely; boost behaviour is still the host's decision
+and invisible from inside. The mitigation that remains available is the one that
+matters most anyway: the 8% per-cell spread criterion (§12) would reject a cell
+whose runs disagreed because the clock moved underneath them.
+
+## 16. Topology re-derived on the box, per §13
+
+Re-derived, never ported. The dev box's map (§9) is **6 cores / 12 logical**;
+this box is **4 cores / 8 logical**, so the §9 table is not merely inaccurate
+here, it names CPUs that do not exist.
+
+```
+Architecture: x86_64          Model name: AMD EPYC-Milan Processor
+CPU(s): 8    Thread(s) per core: 2    Core(s) per socket: 4    Socket(s): 1
+NUMA node0 CPU(s): 0-7
+
+cpu0 siblings: 0-1     cpu4 siblings: 4-5
+cpu1 siblings: 0-1     cpu5 siblings: 4-5
+cpu2 siblings: 2-3     cpu6 siblings: 6-7
+cpu3 siblings: 2-3     cpu7 siblings: 6-7
+
+core_id: cpu0,cpu1 -> 0   cpu2,cpu3 -> 1   cpu4,cpu5 -> 2   cpu6,cpu7 -> 3
+```
+
+Siblings are **adjacent** here, same convention as the dev box — confirmed by
+reading `thread_siblings_list`, not assumed from it (§13 exists because the
+other convention is common and porting a map across it silently serialises
+client and server onto shared cores).
+
+The 4/4 split on physical-core boundaries:
+
+| side | logical CPUs | physical cores |
+|---|---|---|
+| server (the arm under test, containerised) | **`0-3`** | 0, 1 |
+| benchmark client (`memtier_benchmark`) | **`4-7`** | 2, 3 |
+
+Applied as `SERVER_CPUS=0-3` (arms.sh passes `--cpuset-cpus` to every server
+container) and `MEMTIER_CPUSET=4-7` on the client wrapper, recorded in every raw
+header via `--client-cpus 4-7 --client-pin-mechanism docker-cpuset`.
+
+Two honest notes on this split:
+
+- **It gives the server two physical cores, not three.** The dev-box plan gave
+  it three of six. pg_resp executes commands on a single thread (D4), so its
+  server side is not core-starved; PostgreSQL's other processes and, for K-pg,
+  redka's Go runtime *plus* PostgreSQL both share those two cores. For K-pg that
+  is a genuinely tighter box than the dev plan implied, and it is a limitation of
+  the 8-vCPU instance rather than a choice — noted because it works **against**
+  K-pg, and K-pg is the arm pg_resp's structural claim is measured against.
+- **L3 is a single 32 MiB instance shared by all 8 vCPUs.** Client and server
+  cannot be separated in last-level cache on this machine. Core pinning removes
+  execution-resource contention, not cache contention. A second client machine
+  would remove both; that remains the strictly better setup §9 already points at.
+
+## 17. Network lockdown — loopback only
+
+Box requirement 2. Two independent layers:
+
+1. A **Hetzner edge firewall** admitting only TCP 22. This is the layer that
+   holds regardless of anything docker does, and it matters specifically because
+   docker's port publishing writes its own `DOCKER` chain and **bypasses host
+   `ufw`** — a host firewall would give false comfort here, an edge firewall
+   does not.
+2. Every server bound to **127.0.0.1 by its own configuration**.
+
+### Why binds, and not `-p 127.0.0.1:PORT:PORT`
+
+The requirement asks that every published port bind loopback only. With
+`--network host` — which every arm uses, so that no arm pays NAT or the userland
+proxy that the other arms do not — there is no docker port publishing to
+constrain at all: the container is *in* the host's network namespace, so the
+bind address is whatever the server itself binds. So that is where it is set:
+
+| arm | mechanism |
+|---|---|
+| R-def / R-opt | `bind 127.0.0.1` in `redis-{default,cache}.conf` |
+| V-opt | `bind 127.0.0.1` in `valkey-cache.conf` |
+| K-pg | `redka -h 127.0.0.1` (**was `-h 0.0.0.0`** — under host netns that is the internet) |
+| PostgreSQL | `-c listen_addresses=127.0.0.1` |
+| P-def / P-opt | `pg_resp.bind_address`, which already defaults to `127.0.0.1` (D6) |
+
+Switching to `-p 127.0.0.1:PORT:PORT` would have forced bridge networking back
+on and reintroduced per-round-trip NAT + proxy cost for the containerised arms
+only — moving results **in pg_resp's favour**, which is the direction bible
+§0.5 requires the most suspicion of. Same guarantee, no confound. `arms.sh
+lockdown` verifies the end state the requirement actually cares about.
+
+### `ss -tlnp` — baseline, at bootstrap, before any arm was started
+
+```
+State  Recv-Q Send-Q Local Address:Port  Peer Address:Port
+LISTEN 0      4096   127.0.0.53%lo:53         0.0.0.0:*
+LISTEN 0      4096      127.0.0.54:53         0.0.0.0:*
+LISTEN 0      4096       127.0.0.1:45587      0.0.0.0:*
+LISTEN 0      4096         0.0.0.0:22         0.0.0.0:*
+LISTEN 0      4096            [::]:22            [::]:*
+```
+
+Nothing on `0.0.0.0`/`::` except sshd on 22. The three loopback listeners are
+systemd-resolved (`:53`) and one further loopback-bound systemd service; all are
+unreachable from outside the box regardless of the firewall. The post-stand-up
+capture, taken with arms live, is recorded in §18 below.
+
+## 18. Stage definitions — reconstructed, because they were never written down
+
+The Phase 4 kickoff approved "Stage A first, Stage B overnight". That decision
+is recorded in `reports/phase4-progress.md` §A.1; **its content is not**, in this
+file or any other — it lived in the kickoff conversation and did not survive the
+`/clear`. Reconstructed here from the constraints that do survive, and written
+down this time. Flagged as a reconstruction, per the same discipline §3 used for
+the soak invocation.
+
+**Stage A — the decision curve.** bible §10's full matrix is 6 arms x 3 value
+sizes x 2 pipelines x 3 connection counts = 108 cells; at 3 x 60 s plus warm-up
+and stand-up that is an overnight job, and it is the wrong thing to run first,
+because if the harness or an arm is wrong the whole night is wasted. Stage A is
+therefore the **D14 throughput-vs-p99 curve** at the canonical value size
+(1 KB), walking the load axis on the two arms the structural claim (G3) rests
+on: **P-opt and K-pg**. It produces the matched-p99 comparison and the
+each-at-own-saturation ratio, which is exactly what the kickoff's D14 amendment
+requires be published for *both* arms rather than at a single point. It is small
+enough to review by eye and it is the stage that can fail informatively.
+
+**Stage B — the full §10 matrix**, all six arms, overnight, plus the W6
+bytes-per-1M-entries metric.
+
+**A-smoke precedes both** (box requirement 1): one ~10 s throwaway cell per arm,
+all six. Its purpose is not measurement — the containerised-arm path has never
+executed anywhere, on any machine (the dev box could not reach it at all, §D.2 of
+the progress report), so A-smoke is the first execution of that code path in the
+project's history. **Smoke numbers are never published**, and the harness
+enforces it structurally rather than by intention: a 1-run cell is stamped
+unpublishable (§12), and smoke output is written to a separate `smoke/`
+directory.
