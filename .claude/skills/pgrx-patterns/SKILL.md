@@ -85,25 +85,39 @@ shapes the whole event-loop design). Consequences, spike-validated:
   hand-rolled by the Rust side, written to from the main thread right where
   S1 currently just flips the `AtomicBool`.
 
-## 4. GUC registration (digest-sourced, not yet spiked — no GUCs exist until Phase 1)
+## 4. GUC registration (all five of pg_resp's GUCs now live, Phase 2)
 
 ```rust
 static MY_GUC: GucSetting<i32> = GucSetting::<i32>::new(256);
 // in _PG_init:
 GucRegistry::define_int_guc(
     "pg_resp.max_memory", "short desc", "long desc",
-    &MY_GUC, 0, i32::MAX, GucContext::Suset, GucFlags::UNIT_MB,
+    &MY_GUC, 0, i32::MAX, GucContext::Postmaster, GucFlags::UNIT_MB,
 );
 ```
 - `GucSetting<T>` must be a `static`; read with `.get()` on the static
   reference (not on a local copy).
-- `GucContext` choices relevant to bible §3.5-3.6: `Suset` (settable by
-  superuser via SQL, or at postmaster start/SIGHUP) is the right default for
-  `pg_resp.max_memory`, `pg_resp.eviction`, `pg_resp.password` — none of
-  these need to be `Postmaster`-only (no bind-address-style restart
-  requirement) but should not be `Userset` (any-backend-changeable) either.
-  `pg_resp.bind_address` should be `Postmaster` context since changing it
-  requires a restart to actually rebind.
+- **`GucSetting::get()` is main-thread-only, exactly like `log!()`/
+  `ereport!()` (§8.8's finding applies here too) — confirmed from pgrx's own
+  source**: `guc.rs`'s `get()` calls
+  `pg_sys::submodules::thread_check::check_active_thread()` before reading
+  the value, and panics if called off the registered bgworker thread. This
+  means a spawned server/event-loop thread can **never** call `.get()` on
+  any `GucSetting`, no matter how tempting a "just re-read the live value"
+  design looks. The working pattern: read every GUC once, on the main
+  thread, before spawning the server thread, and pass plain values down
+  (`String`, `Option<Vec<u8>>`, `usize`, ...) — exactly how
+  `BIND_ADDRESS`/`PORT` already worked in Phase 1, extended to
+  `MAX_MEMORY`/`EVICTION`/`PASSWORD` in Phase 2.
+- **Consequence for `GucContext` choice**: since nothing can be re-read
+  live from the thread that actually uses it, every GUC in this
+  architecture is effectively read-once-at-bgworker-startup regardless of
+  its declared context — so declaring one `Suset` (implying an operator's
+  `SET` takes effect without a restart) would be actively misleading. All
+  five of pg_resp's GUCs are `Postmaster` context, matching reality. This
+  reverses an earlier (untested) assumption in the pg-conventions skill
+  that `max_memory`/`eviction`/`password` should be `Suset` — corrected
+  once this constraint was actually discovered, not left as a stale note.
 - Unit flags (`UNIT_MB`, `UNIT_S`, etc.) make `SHOW pg_resp.max_memory` look
   native — required by bible §8's "zero skepticism" checklist.
 

@@ -289,6 +289,17 @@ impl Store {
         })
     }
 
+    /// KEYS (bible §3.4 T2 — "with docs warning": O(n), unlike SCAN).
+    /// Pattern filtering (glob match) is the caller's job (pg_resp's
+    /// dispatch layer), keeping this crate protocol/pattern-syntax-agnostic.
+    pub fn all_keys(&mut self, now: Instant) -> Vec<Vec<u8>> {
+        self.map
+            .iter()
+            .filter(|(_, e)| Self::is_live(e, now))
+            .map(|(k, _)| k.to_vec())
+            .collect()
+    }
+
     pub fn set(
         &mut self,
         now: Instant,

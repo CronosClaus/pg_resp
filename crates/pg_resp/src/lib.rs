@@ -14,6 +14,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
 mod dispatch;
+mod glob;
 
 ::pgrx::pg_module_magic!(name, version);
 
@@ -42,6 +43,9 @@ const READ_CHUNK: usize = 16 * 1024;
 static BIND_ADDRESS: GucSetting<Option<CString>> =
     GucSetting::<Option<CString>>::new(Some(c"127.0.0.1"));
 static PORT: GucSetting<i32> = GucSetting::<i32>::new(6379);
+static MAX_MEMORY_MB: GucSetting<i32> = GucSetting::<i32>::new(256); // bible §3.5 default
+static EVICTION: GucSetting<Option<CString>> = GucSetting::<Option<CString>>::new(Some(c"clock_lru"));
+static PASSWORD: GucSetting<Option<CString>> = GucSetting::<Option<CString>>::new(None);
 
 /// `log!()` (and any other pgrx/PG-FFI-backed macro) is forbidden off the
 /// main bgworker thread — pgrx enforces this at *runtime* and panics on
@@ -82,6 +86,44 @@ pub extern "C-unwind" fn _PG_init() {
         GucContext::Postmaster,
         GucFlags::empty(),
     );
+    GucRegistry::define_int_guc(
+        c"pg_resp.max_memory",
+        c"Approximate byte budget for the cache (key+value bytes plus a fixed per-entry overhead estimate).",
+        c"0 means unbounded (no eviction). Accounting and CLOCK-LRU eviction are \
+          implemented in crates/resp-store; the real per-entry overhead constant \
+          is not yet measured (see reports/phase2.md) — treat this as approximate. \
+          Requires a restart to take effect (read once at bgworker startup, not \
+          re-read live — see pgrx-patterns skill's GucSetting::get() trap).",
+        &MAX_MEMORY_MB,
+        0,
+        i32::MAX,
+        GucContext::Postmaster,
+        GucFlags::UNIT_MB,
+    );
+    GucRegistry::define_string_guc(
+        c"pg_resp.eviction",
+        c"Eviction policy: 'clock_lru' or 'noeviction'.",
+        c"'clock_lru' (default) evicts approximately-least-recently-used entries \
+          when pg_resp.max_memory is exceeded. 'noeviction' disables the byte \
+          budget entirely in this version (v0.1 does not yet implement \
+          reject-writes-when-full semantics — see docs/ops.md). Requires a \
+          restart to take effect.",
+        &EVICTION,
+        GucContext::Postmaster,
+        GucFlags::empty(),
+    );
+    GucRegistry::define_string_guc(
+        c"pg_resp.password",
+        c"Password required via the RESP AUTH command. Empty (default) means no authentication required.",
+        c"Constant-time compared (bible §3.6). Read once at bgworker startup \
+          (requires a restart to change, like every other GUC here — see \
+          pgrx-patterns skill's GucSetting::get() main-thread-only trap). No \
+          username support: single-password model only, matching bible §3.6's \
+          single-tenant design.",
+        &PASSWORD,
+        GucContext::Postmaster,
+        GucFlags::empty(),
+    );
 
     BackgroundWorkerBuilder::new("pg_resp")
         .set_function("background_worker_main")
@@ -101,6 +143,35 @@ pub extern "C-unwind" fn background_worker_main(_arg: pg_sys::Datum) {
         .unwrap_or_else(|| "127.0.0.1".to_string());
     let port = PORT.get();
     let addr = format!("{bind_address}:{port}");
+
+    // All GUC reads happen here, on the main (registered) thread, and only
+    // here — GucSetting::get() has the exact same main-thread-only runtime
+    // check as log!() (pgrx-patterns skill's trap for both), so none of
+    // these can be read again from the spawned server thread. Every GUC
+    // here is therefore effectively read-once-at-startup in this
+    // architecture regardless of its declared context; all are registered
+    // `Postmaster` (requires a restart) to be honest about that.
+    let max_memory_bytes: Option<usize> = {
+        let mb = MAX_MEMORY_MB.get();
+        if mb <= 0 {
+            None
+        } else {
+            Some(mb as usize * 1024 * 1024)
+        }
+    };
+    let eviction = EVICTION
+        .get()
+        .map(|c| c.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "clock_lru".to_string());
+    // 'noeviction' in v0.1: no reject-writes-when-full semantics yet (see
+    // docs/ops.md) — simplest honest behavior is "no budget enforced at
+    // all", not silently falling back to clock_lru's cap.
+    let max_memory_bytes = if eviction == "noeviction" {
+        None
+    } else {
+        max_memory_bytes
+    };
+    let password: Option<Vec<u8>> = PASSWORD.get().map(|c| c.to_bytes().to_vec()).filter(|p| !p.is_empty());
 
     log!("pg_resp: starting, binding {addr}");
 
@@ -133,7 +204,7 @@ pub extern "C-unwind" fn background_worker_main(_arg: pg_sys::Datum) {
     // `accept()` handling) is at least logged loudly instead of vanishing.
     let server_thread = std::thread::spawn(move || {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            server_loop(listener, server_shutdown);
+            server_loop(listener, server_shutdown, max_memory_bytes, password);
         }));
         if let Err(payload) = result {
             let msg = payload
@@ -172,10 +243,25 @@ struct Conn {
     stream: MioTcpStream,
     read_buf: Vec<u8>,
     write_buf: Vec<u8>,
+    conn_state: dispatch::ConnState,
 }
 
-fn server_loop(listener: TcpListener, shutdown: Arc<AtomicBool>) {
-    let mut store = Store::new();
+/// How often the server thread runs an active TTL sweep (bible §3.5: "active
+/// sweep from the event loop timer... so memory is actually reclaimed
+/// without a read"), piggybacked on the same poll-timeout tick that already
+/// exists for the shutdown check — no extra timer needed.
+const ACTIVE_EXPIRE_SAMPLE_SIZE: usize = 20;
+
+fn server_loop(
+    listener: TcpListener,
+    shutdown: Arc<AtomicBool>,
+    max_memory_bytes: Option<usize>,
+    password: Option<Vec<u8>>,
+) {
+    let mut store = match max_memory_bytes {
+        Some(bytes) => Store::with_max_memory(bytes),
+        None => Store::new(),
+    };
     let mut mio_listener = MioTcpListener::from_std(listener);
 
     let mut poll = match Poll::new() {
@@ -205,6 +291,11 @@ fn server_loop(listener: TcpListener, shutdown: Arc<AtomicBool>) {
             continue;
         }
 
+        // Active TTL sweep (bible §3.5), piggybacked on this same poll tick
+        // — runs whether this iteration was woken by real I/O or just the
+        // timeout, so it still happens on an idle server.
+        store.active_expire_sweep(Instant::now(), ACTIVE_EXPIRE_SAMPLE_SIZE);
+
         for event in events.iter() {
             if event.token() == LISTENER_TOKEN {
                 loop {
@@ -223,6 +314,7 @@ fn server_loop(listener: TcpListener, shutdown: Arc<AtomicBool>) {
                                         stream,
                                         read_buf: Vec::new(),
                                         write_buf: Vec::new(),
+                                        conn_state: dispatch::ConnState::default(),
                                     },
                                 );
                             }
@@ -249,8 +341,9 @@ fn server_loop(listener: TcpListener, shutdown: Arc<AtomicBool>) {
                 // listener, and every other connection keep running.
                 let keep = match conns.get_mut(&token) {
                     Some(conn) => {
+                        let password_ref = password.as_deref();
                         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            service_connection(conn, &mut store)
+                            service_connection(conn, &mut store, password_ref)
                         })) {
                             Ok(keep) => keep,
                             Err(_) => {
@@ -276,8 +369,8 @@ fn server_loop(listener: TcpListener, shutdown: Arc<AtomicBool>) {
 
 /// Reads what's available, dispatches every complete command in the buffer,
 /// writes replies. Returns false if the connection should be dropped
-/// (peer closed, I/O error, or an unrecoverable protocol error).
-fn service_connection(conn: &mut Conn, store: &mut Store) -> bool {
+/// (peer closed, I/O error, QUIT, or an unrecoverable protocol error).
+fn service_connection(conn: &mut Conn, store: &mut Store, password: Option<&[u8]>) -> bool {
     let mut chunk = [0u8; READ_CHUNK];
     loop {
         match conn.stream.read(&mut chunk) {
@@ -288,6 +381,7 @@ fn service_connection(conn: &mut Conn, store: &mut Store) -> bool {
         }
     }
 
+    let mut should_close = false;
     loop {
         match parse_command(&conn.read_buf) {
             ParseOutcome::Complete { args, consumed } => {
@@ -295,8 +389,20 @@ fn service_connection(conn: &mut Conn, store: &mut Store) -> bool {
                 if !args.is_empty() {
                     let sys_now = SystemTime::now();
                     let mono_now = Instant::now();
-                    let reply = dispatch::dispatch(store, sys_now, mono_now, &args);
+                    let is_quit = args[0].eq_ignore_ascii_case(b"QUIT");
+                    let reply = dispatch::dispatch(
+                        store,
+                        sys_now,
+                        mono_now,
+                        &args,
+                        &mut conn.conn_state,
+                        password,
+                    );
                     reply.write_to(&mut conn.write_buf);
+                    if is_quit {
+                        should_close = true;
+                        break; // stop processing any further pipelined commands
+                    }
                 }
                 // empty args (blank inline / *0): no-op, no reply, keep going
             }
@@ -311,11 +417,12 @@ fn service_connection(conn: &mut Conn, store: &mut Store) -> bool {
     }
 
     if !conn.write_buf.is_empty() {
-        if conn.stream.write_all(&conn.write_buf).is_err() {
+        let write_ok = conn.stream.write_all(&conn.write_buf).is_ok();
+        conn.write_buf.clear();
+        if !write_ok {
             return false;
         }
-        conn.write_buf.clear();
     }
 
-    true
+    !should_close
 }

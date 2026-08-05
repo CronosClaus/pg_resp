@@ -45,12 +45,24 @@ with "Postgres ereport" when writing either.
 - `pg_net`'s convention (docs/refs/pg_net-notes.md): lowercase,
   underscore-separated setting name after the prefix, no abbreviations
   that aren't immediately obvious (`bind_address`, not `bind_addr`).
-- Context choice signals intent to an operator reading `SHOW ALL`:
-  - `Postmaster`: requires a full restart — used for anything that affects
-    what gets bound/allocated at startup (`bind_address`, `port`).
-  - `Suset`: superuser, changeable via SQL or SIGHUP-reload — used for
-    tunables safe to change live (`max_memory`, `eviction`, `password`
-    once these exist).
+- Context choice signals intent to an operator reading `SHOW ALL` — **and
+  must match what the extension's code actually does, not just what sounds
+  right.** Originally this said `max_memory`/`eviction`/`password` should be
+  `Suset` (live-changeable) since they're not startup-time socket
+  parameters like `bind_address`/`port`. That turned out to be wrong:
+  `GucSetting::get()` has the exact same main-thread-only runtime check as
+  `log!()`/`ereport!()` (pgrx-patterns skill's trap — confirmed from
+  pgrx's own source, `guc.rs`'s `get()` calls
+  `thread_check::check_active_thread()`), so none of these GUCs can be
+  re-read from the spawned server thread that actually uses them. In this
+  architecture **every** GUC is read once, on the main thread, before the
+  server thread is spawned — declaring one `Suset` would let an operator
+  `SET` it and see no error, while it silently has no effect until the next
+  restart. All five of pg_resp's GUCs (`bind_address`, `port`,
+  `max_memory`, `eviction`, `password`) are therefore `Postmaster` context,
+  matching what's actually implemented. Revisit if a future phase adds a
+  SIGHUP-driven re-read on the main thread that then hands the new value to
+  the server thread via a channel/atomic.
   - Never `Userset` for anything security- or capacity-relevant.
 - Give every GUC a real short *and* long description string — contrib
   modules are judged on `SHOW pg_resp.foo` reading like it belongs, not on

@@ -1,8 +1,8 @@
-//! T0 command dispatch: translates parsed RESP args (resp-proto) into
-//! resp-store calls and back into a Reply. Bible §3.4 T0 scope only —
-//! T1/T2/T3 (AUTH, SELECT, INFO, CLIENT, COMMAND, data structures, ...) are
-//! Phase 2+ per the phase table; unknown commands (including those) fall
-//! through to a well-formed `-ERR unknown command` reply, never a hang.
+//! T0/T1/T2 command dispatch: translates parsed RESP args (resp-proto) into
+//! resp-store calls and back into a Reply. Bible §3.4 scope — T3 (data
+//! structures, pub/sub, RESP3, MULTI/EXEC) is v0.2+ backlog, logged not
+//! built; unknown commands fall through to a well-formed `-ERR unknown
+//! command` reply, never a hang.
 //!
 //! Per pgrx-patterns skill §8.8 (empirically confirmed, Phase 2): this
 //! function must never panic — a panic here is caught at the per-connection
@@ -14,9 +14,33 @@
 //! which forces PG's own crash-recovery cycle instead. Every path here
 //! returns a Reply; nothing unwraps attacker-controlled input.
 
+use crate::glob::glob_match;
 use resp_proto::Reply;
 use resp_store::{Condition, Expiry, IncrError, Store};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+/// Per-connection state dispatch needs across calls. Deliberately pgrx-free
+/// (like the rest of this module) — `pg_resp.password`'s actual GUC value
+/// is read once per command in `lib.rs` and passed in as a plain byte
+/// slice, keeping this crate's fast-loop testability (no PG needed) intact.
+#[derive(Default)]
+pub struct ConnState {
+    pub authenticated: bool,
+}
+
+/// Bible §3.6: "constant-time compare" for `AUTH`. A naive `==` short-
+/// circuits on the first differing byte — a timing side-channel an
+/// attacker could use to guess the password one byte at a time.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
 
 fn err_wrong_args(cmd: &str) -> Reply {
     Reply::error(format!("ERR wrong number of arguments for '{cmd}' command"))
@@ -133,6 +157,8 @@ pub fn dispatch(
     sys_now: SystemTime,
     mono_now: Instant,
     args: &[Vec<u8>],
+    conn: &mut ConnState,
+    required_password: Option<&[u8]>,
 ) -> Reply {
     if args.is_empty() {
         // Empty inline / *0 command: no-op. Caller should send nothing back;
@@ -146,6 +172,17 @@ pub fn dispatch(
 
     let cmd = upper(&args[0]);
     let rest = &args[1..];
+
+    // NOAUTH gate (bible §3.6): only checked at all when a password is
+    // actually configured. AUTH/HELLO/QUIT must get through even when not
+    // yet authenticated — otherwise a client could never authenticate, or
+    // never cleanly disconnect.
+    if required_password.is_some()
+        && !conn.authenticated
+        && !matches!(cmd.as_str(), "AUTH" | "HELLO" | "QUIT")
+    {
+        return Reply::error("NOAUTH Authentication required.");
+    }
 
     match cmd.as_str() {
         "PING" => match rest.len() {
@@ -329,6 +366,269 @@ pub fn dispatch(
             store.mset(&pairs);
             Reply::ok()
         }
+
+        // --- T1 (bible §3.4, phase 2) ---
+        "AUTH" => {
+            if rest.len() != 1 {
+                return err_wrong_args("auth");
+            }
+            match required_password {
+                None => Reply::error(
+                    "ERR Client sent AUTH, but no password is set. Did you mean AUTH <username> <password>?",
+                ),
+                Some(expected) => {
+                    if constant_time_eq(expected, &rest[0]) {
+                        conn.authenticated = true;
+                        Reply::ok()
+                    } else {
+                        Reply::error("WRONGPASS invalid username-password pair or user is disabled.")
+                    }
+                }
+            }
+        }
+        "SELECT" => match rest.len() {
+            1 if rest[0] == b"0" => Reply::ok(),
+            1 => Reply::error("ERR DB index is out of range"), // bible §3.4: accept db 0 only
+            _ => err_wrong_args("select"),
+        },
+        "DBSIZE" => {
+            if !rest.is_empty() {
+                return err_wrong_args("dbsize");
+            }
+            Reply::Integer(store.stats().keys as i64)
+        }
+        "FLUSHDB" | "FLUSHALL" => {
+            // Single-db model (bible §3.4/§3.6: SELECT accepts db 0 only) —
+            // FLUSHDB and FLUSHALL are equivalent here. Accept an optional
+            // ASYNC/SYNC argument (real Redis's own syntax) as a no-op,
+            // rather than erroring on it — this store has no async path.
+            if rest.len() > 1
+                || (rest.len() == 1 && !matches!(upper(&rest[0]).as_str(), "ASYNC" | "SYNC"))
+            {
+                return err_wrong_args(&cmd.to_lowercase());
+            }
+            store.clear();
+            Reply::ok()
+        }
+        "INFO" => {
+            let stats = store.stats();
+            let max_memory = stats
+                .max_memory_bytes
+                .map(|b| b.to_string())
+                .unwrap_or_else(|| "0".to_string());
+            Reply::bulk(format!(
+                "# Server\r\n\
+                 redis_version:7.0.0\r\n\
+                 pg_resp_version:{}\r\n\
+                 # Memory\r\n\
+                 used_memory:{}\r\n\
+                 maxmemory:{}\r\n\
+                 # Stats\r\n\
+                 keyspace_hits:{}\r\n\
+                 keyspace_misses:{}\r\n\
+                 evicted_keys:{}\r\n\
+                 # Keyspace\r\n\
+                 db0:keys={}\r\n",
+                env!("CARGO_PKG_VERSION"),
+                stats.used_bytes,
+                max_memory,
+                stats.hits,
+                stats.misses,
+                stats.evictions,
+                stats.keys,
+            ))
+        }
+        "SCAN" => {
+            if rest.is_empty() {
+                return err_wrong_args("scan");
+            }
+            let Some(cursor) = std::str::from_utf8(&rest[0])
+                .ok()
+                .and_then(|s| s.parse::<u64>().ok())
+            else {
+                return Reply::error("ERR invalid cursor");
+            };
+            let mut pattern: Option<Vec<u8>> = None;
+            let mut count: usize = 10; // Valkey's own default (docs/refs/valkey-notes.md)
+            let mut i = 1;
+            while i < rest.len() {
+                match upper(&rest[i]).as_str() {
+                    "MATCH" => {
+                        i += 1;
+                        let Some(p) = rest.get(i) else {
+                            return err_syntax();
+                        };
+                        pattern = Some(p.clone());
+                    }
+                    "COUNT" => {
+                        i += 1;
+                        let Some(n) = rest.get(i).and_then(|b| parse_i64(b)) else {
+                            return err_not_integer();
+                        };
+                        if n <= 0 {
+                            return err_syntax();
+                        }
+                        count = n as usize;
+                    }
+                    _ => return err_syntax(),
+                }
+                i += 1;
+            }
+            let (next_cursor, keys) = store.scan(mono_now, cursor, count);
+            let filtered: Vec<Reply> = keys
+                .into_iter()
+                .filter(|k| pattern.as_deref().is_none_or(|p| glob_match(p, k)))
+                .map(Reply::bulk)
+                .collect();
+            Reply::Array(Some(vec![
+                Reply::bulk(next_cursor.to_string()),
+                Reply::Array(Some(filtered)),
+            ]))
+        }
+        "CLIENT" => {
+            if rest.is_empty() {
+                return err_wrong_args("client");
+            }
+            match upper(&rest[0]).as_str() {
+                "SETINFO" | "SETNAME" => Reply::ok(),
+                "GETNAME" => Reply::bulk(""), // no per-connection name tracking yet; empty, not nil (matches real Redis's default)
+                _ => Reply::error(format!(
+                    "ERR Unknown CLIENT subcommand or wrong number of arguments for '{}'",
+                    String::from_utf8_lossy(&rest[0])
+                )),
+            }
+        }
+        "COMMAND" => {
+            if rest.is_empty() {
+                return Reply::Array(Some(vec![])); // bare COMMAND: stub, empty table
+            }
+            match upper(&rest[0]).as_str() {
+                "COUNT" => Reply::Integer(0),
+                "DOCS" => Reply::Array(Some(vec![])),
+                _ => Reply::Array(Some(vec![])),
+            }
+        }
+        "QUIT" => Reply::ok(), // lib.rs's caller closes the connection after sending this
+
+        // --- T2 (bible §3.4, phase 2) ---
+        "SETEX" => {
+            if rest.len() != 3 {
+                return err_wrong_args("setex");
+            }
+            let Some(secs) = parse_i64(&rest[1]) else {
+                return err_not_integer();
+            };
+            if secs <= 0 {
+                return err_invalid_expire("setex");
+            }
+            let deadline = mono_now + Duration::from_secs(secs as u64);
+            store.set(
+                mono_now,
+                &rest[0],
+                rest[2].clone(),
+                Expiry::At(deadline),
+                Condition::None,
+                false,
+            );
+            Reply::ok()
+        }
+        // SETNX has its own reply shape (integer 1/0), distinct from `SET
+        // key value NX` (nil/OK) — confirmed via docs/refs/valkey-notes.md,
+        // not assumed from memory.
+        "SETNX" => {
+            if rest.len() != 2 {
+                return err_wrong_args("setnx");
+            }
+            let outcome = store.set(
+                mono_now,
+                &rest[0],
+                rest[1].clone(),
+                Expiry::None,
+                Condition::IfNotExists,
+                false,
+            );
+            Reply::Integer(outcome.applied as i64)
+        }
+        "GETDEL" => match rest.len() {
+            1 => match store.get_del(mono_now, &rest[0]) {
+                Some(v) => Reply::bulk(v),
+                None => Reply::nil(),
+            },
+            _ => err_wrong_args("getdel"),
+        },
+        "GETEX" => {
+            if rest.is_empty() {
+                return err_wrong_args("getex");
+            }
+            let expiry = if rest.len() == 1 {
+                None
+            } else {
+                match upper(&rest[1]).as_str() {
+                    "PERSIST" if rest.len() == 2 => Some(Expiry::None),
+                    "EX" | "PX" | "EXAT" | "PXAT" if rest.len() == 3 => {
+                        let Some(n) = parse_i64(&rest[2]) else {
+                            return err_not_integer();
+                        };
+                        if n <= 0 {
+                            return err_invalid_expire("getex");
+                        }
+                        let token = upper(&rest[1]);
+                        let deadline = match token.as_str() {
+                            "EX" => mono_now + Duration::from_secs(n as u64),
+                            "PX" => mono_now + Duration::from_millis(n as u64),
+                            "EXAT" => {
+                                resolve_absolute_deadline(sys_now, mono_now, n.saturating_mul(1000))
+                            }
+                            "PXAT" => resolve_absolute_deadline(sys_now, mono_now, n),
+                            _ => unreachable!(),
+                        };
+                        Some(Expiry::At(deadline))
+                    }
+                    _ => return err_syntax(),
+                }
+            };
+            match store.get_ex(mono_now, &rest[0], expiry) {
+                Some(v) => Reply::bulk(v),
+                None => Reply::nil(),
+            }
+        }
+        "PERSIST" => match rest.len() {
+            1 => Reply::Integer(store.persist(mono_now, &rest[0]) as i64),
+            _ => err_wrong_args("persist"),
+        },
+        "TYPE" => match rest.len() {
+            1 => {
+                if store.exists(mono_now, &[&rest[0]]) > 0 {
+                    Reply::simple("string") // T0-T2 scope: only strings ever exist (bible D9)
+                } else {
+                    Reply::simple("none")
+                }
+            }
+            _ => err_wrong_args("type"),
+        },
+        "RANDOMKEY" => {
+            if !rest.is_empty() {
+                return err_wrong_args("randomkey");
+            }
+            match store.random_key(mono_now) {
+                Some(k) => Reply::bulk(k),
+                None => Reply::nil(),
+            }
+        }
+        "KEYS" => {
+            if rest.len() != 1 {
+                return err_wrong_args("keys");
+            }
+            let pattern = &rest[0];
+            let matched: Vec<Reply> = store
+                .all_keys(mono_now)
+                .into_iter()
+                .filter(|k| glob_match(pattern, k))
+                .map(Reply::bulk)
+                .collect();
+            Reply::Array(Some(matched))
+        }
+
         _ => Reply::error(format!("ERR unknown command '{}'", String::from_utf8_lossy(&args[0]))),
     }
 }
