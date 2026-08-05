@@ -1,0 +1,149 @@
+
+======== STAGE A  P-opt  d1024-p1-c1 ========
+stopped every arm except P-opt
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-opt
+OK   only P-opt is live
+P-opt  d1024-p1-c1           22,411.96 ops/s  p50   0.047  p99   0.063  p99.9    0.079  hit 43.14%
+raw:  bench/results/stage-a/2026-08-05-P-opt-d1024-p1-c1.txt
+json: bench/results/stage-a/2026-08-05-P-opt-d1024-p1-c1.json
+
+======== STAGE A  P-opt  d1024-p1-c8 ========
+stopped every arm except P-opt
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-opt
+OK   only P-opt is live
+P-opt  d1024-p1-c8           85,889.49 ops/s  p50   0.095  p99   0.119  p99.9    0.327  hit 58.19%
+raw:  bench/results/stage-a/2026-08-05-P-opt-d1024-p1-c8.txt
+json: bench/results/stage-a/2026-08-05-P-opt-d1024-p1-c8.json
+
+======== STAGE A  P-opt  d1024-p1-c64 ========
+stopped every arm except P-opt
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-opt
+OK   only P-opt is live
+P-opt  d1024-p1-c64          93,612.05 ops/s  p50   0.687  p99   0.735  p99.9    0.839  hit 100.00%
+raw:  bench/results/stage-a/2026-08-05-P-opt-d1024-p1-c64.txt
+json: bench/results/stage-a/2026-08-05-P-opt-d1024-p1-c64.json
+
+======== STAGE A  P-opt  d1024-p16-c1 ========
+stopped every arm except P-opt
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-opt
+OK   only P-opt is live
+P-opt  d1024-p16-c1         257,508.75 ops/s  p50   0.063  p99   0.087  p99.9    0.103  hit 36.16%
+raw:  bench/results/stage-a/2026-08-05-P-opt-d1024-p16-c1.txt
+json: bench/results/stage-a/2026-08-05-P-opt-d1024-p16-c1.json
+
+======== STAGE A  P-opt  d1024-p16-c8 ========
+stopped every arm except P-opt
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-opt
+OK   only P-opt is live
+P-opt  d1024-p16-c8         359,003.79 ops/s  p50   0.359  p99   0.415  p99.9    0.479  hit 39.27%
+raw:  bench/results/stage-a/2026-08-05-P-opt-d1024-p16-c8.txt
+json: bench/results/stage-a/2026-08-05-P-opt-d1024-p16-c8.json
+
+======== STAGE A  P-opt  d1024-p16-c32 ========
+stopped every arm except P-opt
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-opt
+OK   only P-opt is live
+P-opt  d1024-p16-c32        398,178.01 ops/s  p50   1.287  p99   1.367  p99.9    2.879  hit 55.14%
+raw:  bench/results/stage-a/2026-08-05-P-opt-d1024-p16-c32.txt
+json: bench/results/stage-a/2026-08-05-P-opt-d1024-p16-c32.json
+
+======== STAGE A  P-opt  d1024-p16-c64 ========
+stopped every arm except P-opt
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-opt
+OK   only P-opt is live
+P-opt  d1024-p16-c64        401,203.70 ops/s  p50   2.559  p99   2.687  p99.9    3.887  hit 84.66%
+raw:  bench/results/stage-a/2026-08-05-P-opt-d1024-p16-c64.txt
+json: bench/results/stage-a/2026-08-05-P-opt-d1024-p16-c64.json
+
+======== STAGE A  P-opt  d64-p16-c8 ========
+stopped every arm except P-opt
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-opt
+OK   only P-opt is live
+P-opt  d64-p16-c8           860,959.67 ops/s  p50   0.151  p99   0.175  p99.9    0.199  hit 99.87%
+raw:  bench/results/stage-a/2026-08-05-P-opt-d64-p16-c8.txt
+json: bench/results/stage-a/2026-08-05-P-opt-d64-p16-c8.json
+
+======== STAGE A  P-opt  d64-p16-c32 ========
+stopped every arm except P-opt
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-opt
+OK   only P-opt is live
+P-opt  d64-p16-c32        1,041,676.07 ops/s  p50   0.487  p99   0.559  p99.9    0.655  hit 99.62%
+raw:  bench/results/stage-a/2026-08-05-P-opt-d64-p16-c32.txt
+json: bench/results/stage-a/2026-08-05-P-opt-d64-p16-c32.json
+
+======== STAGE A  K-pg  d1024-p1-c1 ========
+stopped every arm except K-pg
+OK   server reports shared_preload_libraries='(empty)' — correct for K-pg
+OK   only K-pg is live
+K-pg   d1024-p1-c1            3,333.51 ops/s  p50   0.271  p99   0.679  p99.9    0.887  hit 63.91%
+raw:  bench/results/stage-a/2026-08-05-K-pg-d1024-p1-c1.txt
+json: bench/results/stage-a/2026-08-05-K-pg-d1024-p1-c1.json
+
+======== STAGE A  K-pg  d1024-p1-c8 ========
+stopped every arm except K-pg
+OK   server reports shared_preload_libraries='(empty)' — correct for K-pg
+OK   only K-pg is live
+K-pg   d1024-p1-c8            9,376.48 ops/s  p50   0.791  p99   1.919  p99.9    3.151  hit 63.38%
+raw:  bench/results/stage-a/2026-08-05-K-pg-d1024-p1-c8.txt
+json: bench/results/stage-a/2026-08-05-K-pg-d1024-p1-c8.json
+
+======== STAGE A  K-pg  d1024-p1-c64 ========
+stopped every arm except K-pg
+OK   server reports shared_preload_libraries='(empty)' — correct for K-pg
+OK   only K-pg is live
+K-pg   d1024-p1-c64           8,977.51 ops/s  p50   4.863  p99  32.639  p99.9   49.151  hit 66.13%
+raw:  bench/results/stage-a/2026-08-05-K-pg-d1024-p1-c64.txt
+json: bench/results/stage-a/2026-08-05-K-pg-d1024-p1-c64.json
+
+======== STAGE A  K-pg  d1024-p16-c1 ========
+stopped every arm except K-pg
+OK   server reports shared_preload_libraries='(empty)' — correct for K-pg
+OK   only K-pg is live
+K-pg   d1024-p16-c1           3,700.59 ops/s  p50   4.319  p99   7.199  p99.9    8.383  hit 63.79%
+raw:  bench/results/stage-a/2026-08-05-K-pg-d1024-p16-c1.txt
+json: bench/results/stage-a/2026-08-05-K-pg-d1024-p16-c1.json
+
+======== STAGE A  K-pg  d1024-p16-c8 ========
+stopped every arm except K-pg
+OK   server reports shared_preload_libraries='(empty)' — correct for K-pg
+OK   only K-pg is live
+K-pg   d1024-p16-c8           9,961.18 ops/s  p50  12.799  p99  17.535  p99.9   24.447  hit 62.40%
+raw:  bench/results/stage-a/2026-08-05-K-pg-d1024-p16-c8.txt
+json: bench/results/stage-a/2026-08-05-K-pg-d1024-p16-c8.json
+
+======== STAGE A  K-pg  d1024-p16-c32 ========
+stopped every arm except K-pg
+OK   server reports shared_preload_libraries='(empty)' — correct for K-pg
+OK   only K-pg is live
+K-pg   d1024-p16-c32          9,814.77 ops/s  p50  51.199  p99  86.527  p99.9  108.031  hit 61.71%
+raw:  bench/results/stage-a/2026-08-05-K-pg-d1024-p16-c32.txt
+json: bench/results/stage-a/2026-08-05-K-pg-d1024-p16-c32.json
+
+======== STAGE A  K-pg  d1024-p16-c64 ========
+stopped every arm except K-pg
+OK   server reports shared_preload_libraries='(empty)' — correct for K-pg
+OK   only K-pg is live
+K-pg   d1024-p16-c64          9,908.58 ops/s  p50 101.375  p99 178.175  p99.9  218.111  hit 61.01%
+raw:  bench/results/stage-a/2026-08-05-K-pg-d1024-p16-c64.txt
+json: bench/results/stage-a/2026-08-05-K-pg-d1024-p16-c64.json
+
+======== STAGE A  K-pg  d64-p16-c8 ========
+stopped every arm except K-pg
+OK   server reports shared_preload_libraries='(empty)' — correct for K-pg
+OK   only K-pg is live
+K-pg   d64-p16-c8            10,296.09 ops/s  p50  12.415  p99  17.535  p99.9   21.503  hit 63.63%
+raw:  bench/results/stage-a/2026-08-05-K-pg-d64-p16-c8.txt
+json: bench/results/stage-a/2026-08-05-K-pg-d64-p16-c8.json
+
+======== STAGE A  K-pg  d64-p16-c32 ========
+stopped every arm except K-pg
+OK   server reports shared_preload_libraries='(empty)' — correct for K-pg
+OK   only K-pg is live
+K-pg   d64-p16-c32           10,123.04 ops/s  p50  49.919  p99  83.455  p99.9   98.303  hit 62.65%
+raw:  bench/results/stage-a/2026-08-05-K-pg-d64-p16-c32.txt
+json: bench/results/stage-a/2026-08-05-K-pg-d64-p16-c32.json
+
+======== STAGE A SUMMARY ========
+all Stage A cells completed
+### STAGE A COMPLETE
+EXIT=0

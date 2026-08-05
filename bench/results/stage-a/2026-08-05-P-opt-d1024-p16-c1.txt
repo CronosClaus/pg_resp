@@ -1,0 +1,334 @@
+==============================================================================
+pg_resp benchmark raw output — arm P-opt — workload d1024-p16-c1
+==============================================================================
+arm            : P-opt  (pg_resp with documented tuning only (max_memory sized))
+workload       : data-size=1024 pipeline=16 clients=1 threads=1 => 1 total connections
+protocol       : 3 run(s) x 60s, ratio 1:10 SET:GET, key-pattern G:G, key-maximum 1000000 (bible §10)
+started (UTC)  : 2026-08-05T17:59:02.455204+00:00
+server note    : Stage A official; fresh arm per cell; CCX33 8 vCPU; server 0-3 client 4-7
+client pinning : docker --cpuset-cpus 4-7 (memtier runs containerised; see bench/harness/box/memtier_benchmark)
+env class      : dedicated — publishable — dedicated-vCPU Linux box per Phase 4 environment amendment
+publishable    : YES
+
+credential note: any --authenticate value below is recorded verbatim on
+purpose — iron rule 7 requires a command line that actually reruns. Per the
+Phase 4 standing rule the benchmark box uses a freshly generated throwaway
+password and is destroyed after the sweep; never reuse it anywhere.
+
+memtier invocation (verbatim — this line is the contract, iron rule 7):
+  bench/harness/box/memtier_benchmark --host=127.0.0.1 --port=6379 --protocol=redis --ratio=1:10 --data-size=1024 --key-pattern=G:G --key-maximum=1000000 --pipeline=16 --clients=1 --threads=1 --test-time=60 --run-count=3 --print-percentiles=50,99,99.9 --hide-histogram --print-all-runs --authenticate=2007c50d0d90210f7fa4cacdd4de1753
+
+warm-up invocation (verbatim):
+  bench/harness/box/memtier_benchmark --host=127.0.0.1 --port=6379 --protocol=redis --ratio=1:0 --data-size=1024 --key-pattern=G:G --key-maximum=1000000 --pipeline=16 --clients=1 --threads=1 --test-time=60 --run-count=1 --hide-histogram --authenticate=2007c50d0d90210f7fa4cacdd4de1753
+
+regenerate this exact file with:
+  bench/harness/sweep.py --arm P-opt --port 6379 --data-size 1024 --pipeline 16 --clients 1 --threads 1 --test-time 60 --run-count 3 --warmup-time 60 --env-class dedicated --client-cpus 4-7 --client-pin-mechanism docker-cpuset --memtier bench/harness/box/memtier_benchmark --require-exclusive --rerun-on-spread --out-dir bench/results/stage-a --server-note 'Stage A official; fresh arm per cell; CCX33 8 vCPU; server 0-3 client 4-7' --auth-from-pg --psql bench/harness/box/psql --pg-host 127.0.0.1 --pg-port 28818
+
+pre-run and post-run checks:
+  - SHOW pg_resp.password -> set (read from the live instance, not assumed)
+  - exclusivity: no other arm port answers
+  - SET/GET probe OK over the measurement path (b'probe-ok' read back)
+  - warm-up: 60s SET-only over the same keyspace
+  - NOAUTH occurrences in output: 0 (must be 0)
+  - per-run ops/sec: #1 257,509, #2 256,525, #3 260,434
+  - median run: #1 (257,508.75 ops/s) — median, NOT memtier's AGGREGATED AVERAGE (a mean)
+  - spread (max-min)/median: 1.52% (threshold 8.0%) -> OK
+  - GET hit rate: 36.16% (must be > 0)
+
+==============================================================================
+raw memtier output follows
+==============================================================================
+1         Threads
+1         Connections per thread
+60        Seconds
+
+
+RUN #1 RESULTS
+============================================================================================================================
+Type         Ops/sec     Hits/sec   Misses/sec    Avg. Latency     p50 Latency     p99 Latency   p99.9 Latency       KB/sec 
+----------------------------------------------------------------------------------------------------------------------------
+Sets        23409.89          ---          ---         0.06182         0.06300         0.08700         0.10300     24507.07 
+Gets       234098.86     84650.21    149448.65         0.06127         0.06300         0.08700         0.10300     93895.11 
+Waits           0.00          ---          ---             ---             ---             ---             ---          --- 
+Totals     257508.75     84650.21    149448.65         0.06132         0.06300         0.08700         0.10300    118402.18 
+
+
+RUN #2 RESULTS
+============================================================================================================================
+Type         Ops/sec     Hits/sec   Misses/sec    Avg. Latency     p50 Latency     p99 Latency   p99.9 Latency       KB/sec 
+----------------------------------------------------------------------------------------------------------------------------
+Sets        23320.49          ---          ---         0.06204         0.06300         0.08700         0.11100     24413.48 
+Gets       233204.80     84331.61    148873.18         0.06153         0.06300         0.08700         0.10300     93541.22 
+Waits           0.00          ---          ---             ---             ---             ---             ---          --- 
+Totals     256525.28     84331.61    148873.18         0.06157         0.06300         0.08700         0.10300    117954.70 
+
+
+RUN #3 RESULTS
+============================================================================================================================
+Type         Ops/sec     Hits/sec   Misses/sec    Avg. Latency     p50 Latency     p99 Latency   p99.9 Latency       KB/sec 
+----------------------------------------------------------------------------------------------------------------------------
+Sets        23675.79          ---          ---         0.06110         0.06300         0.08700         0.10300     24785.43 
+Gets       236757.90     85595.30    151162.60         0.06059         0.06300         0.08700         0.10300     94945.14 
+Waits           0.00          ---          ---             ---             ---             ---             ---          --- 
+Totals     260433.69     85595.30    151162.60         0.06064         0.06300         0.08700         0.10300    119730.58 
+
+
+BEST RUN RESULTS
+============================================================================================================================
+Type         Ops/sec     Hits/sec   Misses/sec    Avg. Latency     p50 Latency     p99 Latency   p99.9 Latency       KB/sec 
+----------------------------------------------------------------------------------------------------------------------------
+Sets        23409.89          ---          ---         0.06182         0.06300         0.08700         0.10300     24507.07 
+Gets       234098.86     84650.21    149448.65         0.06127         0.06300         0.08700         0.10300     93895.11 
+Waits           0.00          ---          ---             ---             ---             ---             ---          --- 
+Totals     257508.75     84650.21    149448.65         0.06132         0.06300         0.08700         0.10300    118402.18 
+
+
+WORST RUN RESULTS
+============================================================================================================================
+Type         Ops/sec     Hits/sec   Misses/sec    Avg. Latency     p50 Latency     p99 Latency   p99.9 Latency       KB/sec 
+----------------------------------------------------------------------------------------------------------------------------
+Sets        23409.89          ---          ---         0.06182         0.06300         0.08700         0.10300     24507.07 
+Gets       234098.86     84650.21    149448.65         0.06127         0.06300         0.08700         0.10300     93895.11 
+Waits           0.00          ---          ---             ---             ---             ---             ---          --- 
+Totals     257508.75     84650.21    149448.65         0.06132         0.06300         0.08700         0.10300    118402.18 
+
+
+AGGREGATED AVERAGE RESULTS (3 runs)
+============================================================================================================================
+Type         Ops/sec     Hits/sec   Misses/sec    Avg. Latency     p50 Latency     p99 Latency   p99.9 Latency       KB/sec 
+----------------------------------------------------------------------------------------------------------------------------
+Sets        23468.72          ---          ---         0.06165         0.06300         0.08700         0.10300     24568.66 
+Gets       234687.18     84859.04    149828.14         0.06113         0.06300         0.08700         0.10300     94127.16 
+Waits           0.00          ---          ---             ---             ---             ---             ---          --- 
+Totals     258155.91     84859.04    149828.14         0.06118         0.06300         0.08700         0.10300    118695.82 
+Writing results to stdout
+[RUN #1] Preparing benchmark client...
+[RUN #1] Launching threads now...
+[RUN #1 2%,   1 secs]  1 threads  1 conns:      269229 ops,  269206 (avg:  269206) ops/sec, 142.20MB/sec (avg: 142.20MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 3%,   2 secs]  1 threads  1 conns:      537338 ops,  268072 (avg:  268639) ops/sec, 141.74MB/sec (avg: 141.97MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 5%,   3 secs]  1 threads  1 conns:      803040 ops,  265658 (avg:  267645) ops/sec, 140.26MB/sec (avg: 141.40MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 7%,   4 secs]  1 threads  1 conns:     1066976 ops,  263893 (avg:  266707) ops/sec, 139.62MB/sec (avg: 140.95MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 8%,   5 secs]  1 threads  1 conns:     1324441 ops,  257430 (avg:  264852) ops/sec, 115.62MB/sec (avg: 135.89MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 10%,   6 secs]  1 threads  1 conns:     1578366 ops,  253892 (avg:  263025) ops/sec, 112.47MB/sec (avg: 131.98MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 12%,   7 secs]  1 threads  1 conns:     1839493 ops,  261093 (avg:  262749) ops/sec, 115.96MB/sec (avg: 129.70MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 13%,   8 secs]  1 threads  1 conns:     2098310 ops,  258785 (avg:  262254) ops/sec, 114.38MB/sec (avg: 127.78MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 15%,   9 secs]  1 threads  1 conns:     2359979 ops,  261637 (avg:  262185) ops/sec, 115.46MB/sec (avg: 126.41MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 17%,  10 secs]  1 threads  1 conns:     2622230 ops,  262219 (avg:  262189) ops/sec, 115.72MB/sec (avg: 125.34MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 18%,  11 secs]  1 threads  1 conns:     2884814 ops,  262545 (avg:  262221) ops/sec, 116.42MB/sec (avg: 124.53MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 20%,  12 secs]  1 threads  1 conns:     3149079 ops,  264229 (avg:  262388) ops/sec, 116.95MB/sec (avg: 123.90MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 22%,  13 secs]  1 threads  1 conns:     3410368 ops,  261253 (avg:  262301) ops/sec, 115.49MB/sec (avg: 123.25MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 23%,  14 secs]  1 threads  1 conns:     3666650 ops,  256248 (avg:  261869) ops/sec, 113.61MB/sec (avg: 122.56MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 25%,  15 secs]  1 threads  1 conns:     3922874 ops,  256193 (avg:  261490) ops/sec, 113.43MB/sec (avg: 121.96MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 27%,  16 secs]  1 threads  1 conns:     4177799 ops,  254891 (avg:  261078) ops/sec, 112.98MB/sec (avg: 121.39MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 28%,  17 secs]  1 threads  1 conns:     4426991 ops,  249157 (avg:  260377) ops/sec, 110.31MB/sec (avg: 120.74MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 30%,  18 secs]  1 threads  1 conns:     4676294 ops,  249267 (avg:  259759) ops/sec, 110.55MB/sec (avg: 120.18MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 32%,  19 secs]  1 threads  1 conns:     4926515 ops,  250187 (avg:  259256) ops/sec, 110.80MB/sec (avg: 119.68MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 33%,  20 secs]  1 threads  1 conns:     5173395 ops,  246848 (avg:  258635) ops/sec, 109.76MB/sec (avg: 119.19MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 35%,  21 secs]  1 threads  1 conns:     5425331 ops,  251903 (avg:  258315) ops/sec, 111.48MB/sec (avg: 118.82MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 37%,  22 secs]  1 threads  1 conns:     5682327 ops,  256965 (avg:  258253) ops/sec, 113.46MB/sec (avg: 118.58MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 38%,  23 secs]  1 threads  1 conns:     5937743 ops,  255382 (avg:  258128) ops/sec, 113.35MB/sec (avg: 118.35MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 40%,  24 secs]  1 threads  1 conns:     6190583 ops,  252806 (avg:  257907) ops/sec, 112.38MB/sec (avg: 118.10MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 42%,  25 secs]  1 threads  1 conns:     6447473 ops,  256858 (avg:  257865) ops/sec, 113.86MB/sec (avg: 117.93MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 43%,  26 secs]  1 threads  1 conns:     6705814 ops,  258304 (avg:  257882) ops/sec, 114.72MB/sec (avg: 117.81MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 45%,  27 secs]  1 threads  1 conns:     6961351 ops,  255151 (avg:  257780) ops/sec, 113.00MB/sec (avg: 117.63MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 47%,  28 secs]  1 threads  1 conns:     7220998 ops,  259615 (avg:  257846) ops/sec, 115.04MB/sec (avg: 117.54MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 48%,  29 secs]  1 threads  1 conns:     7482277 ops,  261245 (avg:  257963) ops/sec, 116.04MB/sec (avg: 117.48MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 50%,  30 secs]  1 threads  1 conns:     7740612 ops,  258305 (avg:  257974) ops/sec, 114.12MB/sec (avg: 117.37MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 52%,  31 secs]  1 threads  1 conns:     7992949 ops,  252301 (avg:  257791) ops/sec, 111.99MB/sec (avg: 117.20MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 53%,  32 secs]  1 threads  1 conns:     8250286 ops,  257298 (avg:  257776) ops/sec, 113.87MB/sec (avg: 117.09MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 55%,  33 secs]  1 threads  1 conns:     8508392 ops,  258073 (avg:  257785) ops/sec, 114.26MB/sec (avg: 117.01MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 57%,  34 secs]  1 threads  1 conns:     8764312 ops,  255884 (avg:  257729) ops/sec, 113.09MB/sec (avg: 116.89MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 58%,  35 secs]  1 threads  1 conns:     9017972 ops,  253623 (avg:  257612) ops/sec, 112.64MB/sec (avg: 116.77MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 60%,  36 secs]  1 threads  1 conns:     9274230 ops,  256222 (avg:  257573) ops/sec, 113.81MB/sec (avg: 116.69MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 62%,  37 secs]  1 threads  1 conns:     9527121 ops,  252855 (avg:  257446) ops/sec, 112.26MB/sec (avg: 116.57MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 63%,  38 secs]  1 threads  1 conns:     9780158 ops,  253006 (avg:  257329) ops/sec, 112.06MB/sec (avg: 116.45MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 65%,  39 secs]  1 threads  1 conns:    10036937 ops,  256746 (avg:  257314) ops/sec, 113.68MB/sec (avg: 116.38MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 67%,  40 secs]  1 threads  1 conns:    10294016 ops,  257041 (avg:  257307) ops/sec, 113.16MB/sec (avg: 116.30MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 68%,  41 secs]  1 threads  1 conns:    10548345 ops,  254294 (avg:  257234) ops/sec, 112.73MB/sec (avg: 116.21MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 70%,  42 secs]  1 threads  1 conns:    10808077 ops,  259696 (avg:  257292) ops/sec, 115.11MB/sec (avg: 116.19MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 72%,  43 secs]  1 threads  1 conns:    11067960 ops,  259848 (avg:  257352) ops/sec, 115.18MB/sec (avg: 116.16MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 73%,  44 secs]  1 threads  1 conns:    11328338 ops,  260337 (avg:  257419) ops/sec, 115.40MB/sec (avg: 116.15MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 75%,  45 secs]  1 threads  1 conns:    11588785 ops,  260407 (avg:  257486) ops/sec, 115.23MB/sec (avg: 116.13MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 77%,  46 secs]  1 threads  1 conns:    11853102 ops,  264276 (avg:  257633) ops/sec, 117.20MB/sec (avg: 116.15MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 78%,  47 secs]  1 threads  1 conns:    12114446 ops,  261313 (avg:  257712) ops/sec, 116.15MB/sec (avg: 116.15MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 80%,  48 secs]  1 threads  1 conns:    12371050 ops,  256571 (avg:  257688) ops/sec, 113.86MB/sec (avg: 116.10MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 82%,  49 secs]  1 threads  1 conns:    12628588 ops,  257507 (avg:  257684) ops/sec, 114.21MB/sec (avg: 116.06MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 83%,  50 secs]  1 threads  1 conns:    12887819 ops,  259203 (avg:  257715) ops/sec, 114.86MB/sec (avg: 116.04MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 85%,  51 secs]  1 threads  1 conns:    13144230 ops,  256377 (avg:  257688) ops/sec, 113.39MB/sec (avg: 115.99MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 87%,  52 secs]  1 threads  1 conns:    13400868 ops,  256603 (avg:  257668) ops/sec, 113.31MB/sec (avg: 115.94MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 88%,  53 secs]  1 threads  1 conns:    13660317 ops,  259415 (avg:  257701) ops/sec, 114.78MB/sec (avg: 115.91MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 90%,  54 secs]  1 threads  1 conns:    13915769 ops,  255417 (avg:  257658) ops/sec, 113.01MB/sec (avg: 115.86MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 92%,  55 secs]  1 threads  1 conns:    14172241 ops,  256434 (avg:  257636) ops/sec, 113.65MB/sec (avg: 115.82MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 93%,  56 secs]  1 threads  1 conns:    14427852 ops,  255575 (avg:  257599) ops/sec, 113.61MB/sec (avg: 115.78MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 95%,  57 secs]  1 threads  1 conns:    14682594 ops,  254712 (avg:  257549) ops/sec, 112.87MB/sec (avg: 115.73MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 97%,  58 secs]  1 threads  1 conns:    14934340 ops,  251709 (avg:  257448) ops/sec, 111.40MB/sec (avg: 115.65MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 98%,  59 secs]  1 threads  1 conns:    15193086 ops,  258708 (avg:  257469) ops/sec, 114.64MB/sec (avg: 115.64MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #1 100%,  60 secs]  0 threads  1 conns:    15450554 ops,  258708 (avg:  257508) ops/sec, 114.64MB/sec (avg: 115.63MB/sec),  0.06 (avg:  0.06) msec latency
+
+[RUN #2] Preparing benchmark client...
+[RUN #2] Launching threads now...
+[RUN #2 2%,   1 secs]  1 threads  1 conns:      266323 ops,  266305 (avg:  266305) ops/sec, 140.67MB/sec (avg: 140.67MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 3%,   2 secs]  1 threads  1 conns:      530135 ops,  263780 (avg:  265043) ops/sec, 139.47MB/sec (avg: 140.07MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 5%,   3 secs]  1 threads  1 conns:      791765 ops,  261595 (avg:  263893) ops/sec, 138.05MB/sec (avg: 139.40MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 7%,   4 secs]  1 threads  1 conns:     1047632 ops,  255838 (avg:  261879) ops/sec, 135.53MB/sec (avg: 138.43MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 8%,   5 secs]  1 threads  1 conns:     1307755 ops,  260084 (avg:  261520) ops/sec, 118.41MB/sec (avg: 134.43MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 10%,   6 secs]  1 threads  1 conns:     1565468 ops,  257674 (avg:  260879) ops/sec, 114.10MB/sec (avg: 131.04MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 12%,   7 secs]  1 threads  1 conns:     1818454 ops,  252562 (avg:  259690) ops/sec, 112.19MB/sec (avg: 128.34MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 13%,   8 secs]  1 threads  1 conns:     2076072 ops,  257573 (avg:  259425) ops/sec, 113.90MB/sec (avg: 126.54MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 15%,   9 secs]  1 threads  1 conns:     2335461 ops,  259351 (avg:  259417) ops/sec, 114.45MB/sec (avg: 125.20MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 17%,  10 secs]  1 threads  1 conns:     2592761 ops,  257266 (avg:  259202) ops/sec, 113.39MB/sec (avg: 124.02MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 18%,  11 secs]  1 threads  1 conns:     2843500 ops,  250705 (avg:  258430) ops/sec, 111.03MB/sec (avg: 122.83MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 20%,  12 secs]  1 threads  1 conns:     3100351 ops,  256819 (avg:  258295) ops/sec, 113.96MB/sec (avg: 122.10MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 22%,  13 secs]  1 threads  1 conns:     3355111 ops,  254728 (avg:  258021) ops/sec, 112.61MB/sec (avg: 121.37MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 23%,  14 secs]  1 threads  1 conns:     3607073 ops,  251932 (avg:  257586) ops/sec, 111.58MB/sec (avg: 120.67MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 25%,  15 secs]  1 threads  1 conns:     3861761 ops,  254648 (avg:  257390) ops/sec, 112.88MB/sec (avg: 120.15MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 27%,  16 secs]  1 threads  1 conns:     4115475 ops,  253681 (avg:  257158) ops/sec, 112.19MB/sec (avg: 119.65MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 28%,  17 secs]  1 threads  1 conns:     4363598 ops,  248084 (avg:  256625) ops/sec, 109.88MB/sec (avg: 119.08MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 30%,  18 secs]  1 threads  1 conns:     4617288 ops,  253657 (avg:  256460) ops/sec, 112.37MB/sec (avg: 118.70MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 32%,  19 secs]  1 threads  1 conns:     4870206 ops,  252885 (avg:  256272) ops/sec, 112.08MB/sec (avg: 118.35MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 33%,  20 secs]  1 threads  1 conns:     5118905 ops,  248665 (avg:  255891) ops/sec, 110.53MB/sec (avg: 117.96MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 35%,  21 secs]  1 threads  1 conns:     5366092 ops,  247150 (avg:  255475) ops/sec, 109.38MB/sec (avg: 117.55MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 37%,  22 secs]  1 threads  1 conns:     5618298 ops,  252172 (avg:  255325) ops/sec, 111.61MB/sec (avg: 117.28MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 38%,  23 secs]  1 threads  1 conns:     5874998 ops,  256666 (avg:  255383) ops/sec, 113.59MB/sec (avg: 117.12MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 40%,  24 secs]  1 threads  1 conns:     6125677 ops,  250646 (avg:  255186) ops/sec, 111.50MB/sec (avg: 116.89MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 42%,  25 secs]  1 threads  1 conns:     6381640 ops,  255929 (avg:  255216) ops/sec, 113.60MB/sec (avg: 116.76MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 43%,  26 secs]  1 threads  1 conns:     6641584 ops,  259910 (avg:  255396) ops/sec, 115.03MB/sec (avg: 116.69MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 45%,  27 secs]  1 threads  1 conns:     6894467 ops,  252851 (avg:  255302) ops/sec, 112.45MB/sec (avg: 116.53MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 47%,  28 secs]  1 threads  1 conns:     7148766 ops,  254267 (avg:  255265) ops/sec, 112.43MB/sec (avg: 116.39MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 48%,  29 secs]  1 threads  1 conns:     7404481 ops,  255678 (avg:  255279) ops/sec, 113.52MB/sec (avg: 116.29MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 50%,  30 secs]  1 threads  1 conns:     7658180 ops,  253666 (avg:  255225) ops/sec, 112.20MB/sec (avg: 116.15MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 52%,  31 secs]  1 threads  1 conns:     7910081 ops,  251869 (avg:  255117) ops/sec, 111.81MB/sec (avg: 116.01MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 53%,  32 secs]  1 threads  1 conns:     8170755 ops,  260642 (avg:  255290) ops/sec, 115.51MB/sec (avg: 116.00MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 55%,  33 secs]  1 threads  1 conns:     8430576 ops,  259487 (avg:  255417) ops/sec, 114.69MB/sec (avg: 115.96MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 57%,  34 secs]  1 threads  1 conns:     8687592 ops,  256973 (avg:  255463) ops/sec, 113.77MB/sec (avg: 115.89MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 58%,  35 secs]  1 threads  1 conns:     8946114 ops,  258488 (avg:  255549) ops/sec, 114.60MB/sec (avg: 115.86MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 60%,  36 secs]  1 threads  1 conns:     9208040 ops,  261896 (avg:  255726) ops/sec, 116.25MB/sec (avg: 115.87MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 62%,  37 secs]  1 threads  1 conns:     9465438 ops,  257362 (avg:  255770) ops/sec, 114.41MB/sec (avg: 115.83MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 63%,  38 secs]  1 threads  1 conns:     9721901 ops,  256427 (avg:  255787) ops/sec, 113.81MB/sec (avg: 115.77MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 65%,  39 secs]  1 threads  1 conns:     9981563 ops,  259629 (avg:  255886) ops/sec, 114.88MB/sec (avg: 115.75MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 67%,  40 secs]  1 threads  1 conns:    10241621 ops,  260023 (avg:  255989) ops/sec, 114.48MB/sec (avg: 115.72MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 68%,  41 secs]  1 threads  1 conns:    10496377 ops,  254725 (avg:  255958) ops/sec, 112.60MB/sec (avg: 115.64MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 70%,  42 secs]  1 threads  1 conns:    10756358 ops,  259952 (avg:  256053) ops/sec, 115.33MB/sec (avg: 115.64MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 72%,  43 secs]  1 threads  1 conns:    11015705 ops,  259316 (avg:  256129) ops/sec, 114.91MB/sec (avg: 115.62MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 73%,  44 secs]  1 threads  1 conns:    11275436 ops,  259700 (avg:  256210) ops/sec, 115.23MB/sec (avg: 115.61MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 75%,  45 secs]  1 threads  1 conns:    11537651 ops,  262178 (avg:  256343) ops/sec, 116.12MB/sec (avg: 115.62MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 77%,  46 secs]  1 threads  1 conns:    11795258 ops,  257577 (avg:  256370) ops/sec, 114.06MB/sec (avg: 115.59MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 78%,  47 secs]  1 threads  1 conns:    12054064 ops,  258773 (avg:  256421) ops/sec, 114.85MB/sec (avg: 115.57MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 80%,  48 secs]  1 threads  1 conns:    12303994 ops,  249898 (avg:  256285) ops/sec, 111.11MB/sec (avg: 115.48MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 82%,  49 secs]  1 threads  1 conns:    12556980 ops,  252954 (avg:  256217) ops/sec, 112.24MB/sec (avg: 115.41MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 83%,  50 secs]  1 threads  1 conns:    12816630 ops,  259606 (avg:  256285) ops/sec, 115.09MB/sec (avg: 115.41MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 85%,  51 secs]  1 threads  1 conns:    13070564 ops,  253898 (avg:  256238) ops/sec, 112.23MB/sec (avg: 115.34MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 87%,  52 secs]  1 threads  1 conns:    13325575 ops,  254981 (avg:  256214) ops/sec, 112.59MB/sec (avg: 115.29MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 88%,  53 secs]  1 threads  1 conns:    13582975 ops,  257364 (avg:  256236) ops/sec, 113.88MB/sec (avg: 115.26MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 90%,  54 secs]  1 threads  1 conns:    13842761 ops,  259752 (avg:  256301) ops/sec, 114.94MB/sec (avg: 115.26MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 92%,  55 secs]  1 threads  1 conns:    14098370 ops,  255568 (avg:  256287) ops/sec, 113.35MB/sec (avg: 115.22MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 93%,  56 secs]  1 threads  1 conns:    14356967 ops,  258555 (avg:  256328) ops/sec, 114.61MB/sec (avg: 115.21MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 95%,  57 secs]  1 threads  1 conns:    14617218 ops,  260219 (avg:  256396) ops/sec, 115.52MB/sec (avg: 115.22MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 97%,  58 secs]  1 threads  1 conns:    14876895 ops,  259640 (avg:  256452) ops/sec, 114.95MB/sec (avg: 115.21MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 98%,  59 secs]  1 threads  1 conns:    15135747 ops,  258820 (avg:  256492) ops/sec, 114.66MB/sec (avg: 115.20MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #2 100%,  60 secs]  0 threads  1 conns:    15391541 ops,  258820 (avg:  256525) ops/sec, 114.66MB/sec (avg: 115.19MB/sec),  0.06 (avg:  0.06) msec latency
+
+[RUN #3] Preparing benchmark client...
+[RUN #3] Launching threads now...
+[RUN #3 2%,   1 secs]  1 threads  1 conns:      262153 ops,  262130 (avg:  262130) ops/sec, 138.44MB/sec (avg: 138.44MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 3%,   2 secs]  1 threads  1 conns:      526561 ops,  264366 (avg:  263248) ops/sec, 139.78MB/sec (avg: 139.11MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 5%,   3 secs]  1 threads  1 conns:      789218 ops,  262621 (avg:  263039) ops/sec, 138.60MB/sec (avg: 138.94MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 7%,   4 secs]  1 threads  1 conns:     1052298 ops,  263044 (avg:  263040) ops/sec, 139.33MB/sec (avg: 139.04MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 8%,   5 secs]  1 threads  1 conns:     1310612 ops,  258278 (avg:  262088) ops/sec, 117.26MB/sec (avg: 134.68MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 10%,   6 secs]  1 threads  1 conns:     1571634 ops,  260984 (avg:  261904) ops/sec, 115.54MB/sec (avg: 131.49MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 12%,   7 secs]  1 threads  1 conns:     1822626 ops,  250959 (avg:  260340) ops/sec, 111.50MB/sec (avg: 128.64MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 13%,   8 secs]  1 threads  1 conns:     2074209 ops,  251546 (avg:  259241) ops/sec, 111.20MB/sec (avg: 126.46MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 15%,   9 secs]  1 threads  1 conns:     2329057 ops,  254809 (avg:  258748) ops/sec, 112.46MB/sec (avg: 124.90MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 17%,  10 secs]  1 threads  1 conns:     2578052 ops,  248958 (avg:  257769) ops/sec, 109.74MB/sec (avg: 123.39MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 18%,  11 secs]  1 threads  1 conns:     2833440 ops,  255354 (avg:  257550) ops/sec, 113.06MB/sec (avg: 122.45MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 20%,  12 secs]  1 threads  1 conns:     3093801 ops,  260326 (avg:  257781) ops/sec, 115.57MB/sec (avg: 121.87MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 22%,  13 secs]  1 threads  1 conns:     3350383 ops,  256544 (avg:  257686) ops/sec, 113.41MB/sec (avg: 121.22MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 23%,  14 secs]  1 threads  1 conns:     3608553 ops,  258135 (avg:  257718) ops/sec, 114.28MB/sec (avg: 120.73MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 25%,  15 secs]  1 threads  1 conns:     3868224 ops,  259635 (avg:  257846) ops/sec, 114.98MB/sec (avg: 120.34MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 27%,  16 secs]  1 threads  1 conns:     4124011 ops,  255751 (avg:  257715) ops/sec, 113.22MB/sec (avg: 119.90MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 28%,  17 secs]  1 threads  1 conns:     4375219 ops,  251166 (avg:  257330) ops/sec, 111.26MB/sec (avg: 119.39MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 30%,  18 secs]  1 threads  1 conns:     4628253 ops,  252996 (avg:  257089) ops/sec, 112.10MB/sec (avg: 118.98MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 32%,  19 secs]  1 threads  1 conns:     4883381 ops,  255093 (avg:  256984) ops/sec, 113.06MB/sec (avg: 118.67MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 33%,  20 secs]  1 threads  1 conns:     5138354 ops,  254936 (avg:  256881) ops/sec, 113.25MB/sec (avg: 118.40MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 35%,  21 secs]  1 threads  1 conns:     5396912 ops,  258520 (avg:  256959) ops/sec, 114.51MB/sec (avg: 118.22MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 37%,  22 secs]  1 threads  1 conns:     5661707 ops,  264758 (avg:  257314) ops/sec, 117.01MB/sec (avg: 118.16MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 38%,  23 secs]  1 threads  1 conns:     5923781 ops,  262037 (avg:  257519) ops/sec, 116.27MB/sec (avg: 118.08MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 40%,  24 secs]  1 threads  1 conns:     6186034 ops,  262214 (avg:  257715) ops/sec, 116.47MB/sec (avg: 118.01MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 42%,  25 secs]  1 threads  1 conns:     6452987 ops,  266916 (avg:  258083) ops/sec, 118.38MB/sec (avg: 118.03MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 43%,  26 secs]  1 threads  1 conns:     6718988 ops,  265965 (avg:  258386) ops/sec, 118.03MB/sec (avg: 118.03MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 45%,  27 secs]  1 threads  1 conns:     6979758 ops,  260734 (avg:  258473) ops/sec, 115.55MB/sec (avg: 117.94MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 47%,  28 secs]  1 threads  1 conns:     7244532 ops,  264736 (avg:  258697) ops/sec, 117.35MB/sec (avg: 117.91MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 48%,  29 secs]  1 threads  1 conns:     7511766 ops,  267199 (avg:  258990) ops/sec, 118.55MB/sec (avg: 117.94MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 50%,  30 secs]  1 threads  1 conns:     7776472 ops,  264669 (avg:  259179) ops/sec, 117.12MB/sec (avg: 117.91MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 52%,  31 secs]  1 threads  1 conns:     8040084 ops,  263577 (avg:  259321) ops/sec, 116.83MB/sec (avg: 117.87MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 53%,  32 secs]  1 threads  1 conns:     8306914 ops,  266794 (avg:  259555) ops/sec, 118.08MB/sec (avg: 117.88MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 55%,  33 secs]  1 threads  1 conns:     8573775 ops,  266077 (avg:  259753) ops/sec, 117.81MB/sec (avg: 117.88MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 57%,  34 secs]  1 threads  1 conns:     8834342 ops,  260534 (avg:  259776) ops/sec, 115.29MB/sec (avg: 117.80MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 58%,  35 secs]  1 threads  1 conns:     9091951 ops,  257578 (avg:  259713) ops/sec, 114.42MB/sec (avg: 117.71MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 60%,  36 secs]  1 threads  1 conns:     9358077 ops,  266094 (avg:  259890) ops/sec, 118.22MB/sec (avg: 117.72MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 62%,  37 secs]  1 threads  1 conns:     9619127 ops,  261012 (avg:  259921) ops/sec, 115.86MB/sec (avg: 117.67MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 63%,  38 secs]  1 threads  1 conns:     9881512 ops,  262348 (avg:  259984) ops/sec, 116.16MB/sec (avg: 117.63MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 65%,  39 secs]  1 threads  1 conns:    10139352 ops,  257802 (avg:  259928) ops/sec, 113.82MB/sec (avg: 117.53MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 67%,  40 secs]  1 threads  1 conns:    10394533 ops,  255147 (avg:  259809) ops/sec, 112.56MB/sec (avg: 117.41MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 68%,  41 secs]  1 threads  1 conns:    10650654 ops,  256084 (avg:  259718) ops/sec, 113.48MB/sec (avg: 117.31MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 70%,  42 secs]  1 threads  1 conns:    10912772 ops,  262082 (avg:  259774) ops/sec, 116.33MB/sec (avg: 117.29MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 72%,  43 secs]  1 threads  1 conns:    11172598 ops,  259789 (avg:  259775) ops/sec, 115.09MB/sec (avg: 117.24MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 73%,  44 secs]  1 threads  1 conns:    11430950 ops,  257876 (avg:  259731) ops/sec, 114.11MB/sec (avg: 117.17MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 75%,  45 secs]  1 threads  1 conns:    11698164 ops,  267180 (avg:  259897) ops/sec, 118.50MB/sec (avg: 117.20MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 77%,  46 secs]  1 threads  1 conns:    11962262 ops,  264064 (avg:  259988) ops/sec, 116.98MB/sec (avg: 117.19MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 78%,  47 secs]  1 threads  1 conns:    12220500 ops,  258202 (avg:  259950) ops/sec, 114.87MB/sec (avg: 117.14MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 80%,  48 secs]  1 threads  1 conns:    12481143 ops,  260608 (avg:  259963) ops/sec, 115.61MB/sec (avg: 117.11MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 82%,  49 secs]  1 threads  1 conns:    12748335 ops,  267157 (avg:  260110) ops/sec, 118.64MB/sec (avg: 117.14MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 83%,  50 secs]  1 threads  1 conns:    13013435 ops,  265070 (avg:  260209) ops/sec, 117.19MB/sec (avg: 117.14MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 85%,  51 secs]  1 threads  1 conns:    13273864 ops,  260395 (avg:  260213) ops/sec, 115.01MB/sec (avg: 117.10MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 87%,  52 secs]  1 threads  1 conns:    13540317 ops,  266418 (avg:  260332) ops/sec, 117.83MB/sec (avg: 117.11MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 88%,  53 secs]  1 threads  1 conns:    13803938 ops,  263586 (avg:  260394) ops/sec, 116.73MB/sec (avg: 117.11MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 90%,  54 secs]  1 threads  1 conns:    14063662 ops,  259687 (avg:  260381) ops/sec, 115.05MB/sec (avg: 117.07MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 92%,  55 secs]  1 threads  1 conns:    14320467 ops,  256771 (avg:  260315) ops/sec, 113.75MB/sec (avg: 117.01MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 93%,  56 secs]  1 threads  1 conns:    14581900 ops,  261397 (avg:  260334) ops/sec, 116.16MB/sec (avg: 116.99MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 95%,  57 secs]  1 threads  1 conns:    14843085 ops,  261151 (avg:  260349) ops/sec, 115.69MB/sec (avg: 116.97MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 97%,  58 secs]  1 threads  1 conns:    15105105 ops,  261985 (avg:  260377) ops/sec, 115.97MB/sec (avg: 116.95MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 98%,  59 secs]  1 threads  1 conns:    15367782 ops,  262640 (avg:  260415) ops/sec, 116.20MB/sec (avg: 116.94MB/sec),  0.06 (avg:  0.06) msec latency
+[RUN #3 100%,  60 secs]  0 threads  1 conns:    15626046 ops,  262640 (avg:  260433) ops/sec, 116.20MB/sec (avg: 116.92MB/sec),  0.06 (avg:  0.06) msec latency
+
+warning: GET miss rate 63.84% above target 1.00% (8966933 misses / 14045958 ops)
+
+CPU Utilization Summary
+  Total CPU time:   35.408s  (user 18.448s, sys 16.960s)
+  Wall time:        60.000s
+  Cores used:       0.590   (avg 59.0% across 1 worker threads)
+  Peak utilization: 64.1%
+warning: GET miss rate 63.84% above target 1.00% (8932405 misses / 13992310 ops)
+
+CPU Utilization Summary
+  Total CPU time:   35.880s  (user 18.574s, sys 17.306s)
+  Wall time:        60.000s
+  Cores used:       0.598   (avg 59.8% across 1 worker threads)
+  Peak utilization: 65.7%
+warning: GET miss rate 63.85% above target 1.00% (9069769 misses / 14205496 ops)
+
+CPU Utilization Summary
+  Total CPU time:   36.071s  (user 18.890s, sys 17.181s)
+  Wall time:        60.000s
+  Cores used:       0.601   (avg 60.1% across 1 worker threads)
+  Peak utilization: 65.1%
+warning: GET miss rate 63.84% above target 1.00% (8966933 misses / 14045958 ops)
+
+CPU Utilization Summary
+  Total CPU time:   35.408s  (user 18.448s, sys 16.960s)
+  Wall time:        60.000s
+  Cores used:       0.590   (avg 59.0% across 1 worker threads)
+  Peak utilization: 64.1%
+warning: GET miss rate 63.84% above target 1.00% (8966933 misses / 14045958 ops)
+
+CPU Utilization Summary
+  Total CPU time:   35.408s  (user 18.448s, sys 16.960s)
+  Wall time:        60.000s
+  Cores used:       0.590   (avg 59.0% across 1 worker threads)
+  Peak utilization: 64.1%
+
+CPU Utilization Summary
+  Total CPU time:   107.359s  (user 55.912s, sys 51.447s)
+  Wall time:        180.001s
+  Cores used:       0.596   (avg 59.6% across 1 worker threads)
+  Peak utilization: 65.7%

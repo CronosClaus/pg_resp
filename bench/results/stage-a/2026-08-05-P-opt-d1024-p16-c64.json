@@ -1,0 +1,20 @@
+{
+  "arm": "P-opt",
+  "workload_id": "d1024-p16-c64",
+  "env_class": "dedicated",
+  "publishable": true,
+  "total_conns": 64,
+  "ops_sec": 401203.7,
+  "p50": 2.559,
+  "p99": 2.687,
+  "p999": 3.887,
+  "avg_latency": 2.55174,
+  "hits_sec": 308787.46,
+  "misses_sec": 55942.69,
+  "hit_rate_pct": 84.66189592497358,
+  "spread_pct": 1.2800081355181923,
+  "n_runs": 3,
+  "spread_ok": true,
+  "raw_file": "bench/results/stage-a/2026-08-05-P-opt-d1024-p16-c64.txt",
+  "rerun": "bench/harness/sweep.py --arm P-opt --port 6379 --data-size 1024 --pipeline 16 --clients 16 --threads 4 --test-time 60 --run-count 3 --warmup-time 60 --env-class dedicated --client-cpus 4-7 --client-pin-mechanism docker-cpuset --memtier bench/harness/box/memtier_benchmark --require-exclusive --rerun-on-spread --out-dir bench/results/stage-a --server-note 'Stage A official; fresh arm per cell; CCX33 8 vCPU; server 0-3 client 4-7' --auth-from-pg --psql bench/harness/box/psql --pg-host 127.0.0.1 --pg-port 28818"
+}

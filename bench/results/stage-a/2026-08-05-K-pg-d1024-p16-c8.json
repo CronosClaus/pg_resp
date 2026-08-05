@@ -1,0 +1,20 @@
+{
+  "arm": "K-pg",
+  "workload_id": "d1024-p16-c8",
+  "env_class": "dedicated",
+  "publishable": true,
+  "total_conns": 8,
+  "ops_sec": 9961.18,
+  "p50": 12.799,
+  "p99": 17.535,
+  "p999": 24.447,
+  "avg_latency": 12.84771,
+  "hits_sec": 5650.53,
+  "misses_sec": 3405.05,
+  "hit_rate_pct": 62.398322360356815,
+  "spread_pct": 0.35859205435501784,
+  "n_runs": 3,
+  "spread_ok": true,
+  "raw_file": "bench/results/stage-a/2026-08-05-K-pg-d1024-p16-c8.txt",
+  "rerun": "bench/harness/sweep.py --arm K-pg --port 6383 --data-size 1024 --pipeline 16 --clients 2 --threads 4 --test-time 60 --run-count 3 --warmup-time 60 --env-class dedicated --client-cpus 4-7 --client-pin-mechanism docker-cpuset --memtier bench/harness/box/memtier_benchmark --require-exclusive --rerun-on-spread --out-dir bench/results/stage-a --server-note 'Stage A official; fresh arm per cell; CCX33 8 vCPU; server 0-3 client 4-7'"
+}
