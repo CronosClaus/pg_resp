@@ -24,7 +24,7 @@ amended plan.
 |---|---|
 | R1 fast loop | **PASS** — 119/119 (45 resp-proto + 52 resp-store + 22 resp-client), up from 80 |
 | slow loop (`cargo pgrx test pg18`) | **PASS** — 76/76 (73 unit + 3 `#[pg_test]`) |
-| R2 compat matrix | _pending_ |
+| R2 compat matrix | **PASS** — 144/144, unchanged from the Phase 2 baseline (redis-cli 28, redis-py 27, node-redis 30, go-redis 28, jedis 31). Re-run because ADD1 rewrote the reply write path and INFO gained a field; no client tripped on either |
 | R3 differential oracle | _pending_ |
 | R4 lifecycle (Phase 0 S1 table) | **PASS** — stop in 0.20s (gate < 2s), 20/20 restart cycles, no orphans, port released, SIGKILL recovery 0.6s. Now a committed harness (`tests/lifecycle/lifecycle.py`) instead of a by-hand ritual |
 
