@@ -4,10 +4,14 @@
 //! Phase 2+ per the phase table; unknown commands (including those) fall
 //! through to a well-formed `-ERR unknown command` reply, never a hang.
 //!
-//! Per pgrx-patterns skill §8.7 (Phase 0's kill-9 finding): this function
-//! must never panic — a panic here is not locally contained, it takes down
-//! the whole Postgres instance (BGWORKER_SHMEM_ACCESS is mandatory in pgrx,
-//! so a crashed worker forces a full crash-recovery cycle). Every path here
+//! Per pgrx-patterns skill §8.8 (empirically confirmed, Phase 2): this
+//! function must never panic — a panic here is caught at the per-connection
+//! fence in `lib.rs`'s server loop, but that only limits the damage to one
+//! dropped connection. Without that fence a panic silently kills the entire
+//! server thread (every connection, every future connection) while
+//! Postgres itself and the bgworker process stay completely healthy —
+//! distinct from and not the same failure as an external SIGKILL (§8.7),
+//! which forces PG's own crash-recovery cycle instead. Every path here
 //! returns a Reply; nothing unwraps attacker-controlled input.
 
 use resp_proto::Reply;

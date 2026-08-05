@@ -221,6 +221,7 @@ The **differential test against Valkey** is the highest-leverage testing idea in
 | rollback safety | txn with resp.set → ROLLBACK → key absent; → COMMIT → key present (automated) |
 | staleness bound | measured commit→eviction latency histogram published; p99 < 5 ms on dev box |
 | demo app 2 | works end-to-end (§11) |
+| stats consistency | `resp.stats()` returns numbers identical to `INFO`'s stats/memory section (keys/hits/misses/evictions/used_bytes) — Phase 2's "memory honesty" gate was satisfied via the RESP-level `INFO` command rather than building `resp.stats()` early (its real dependency, the loopback-RESP SQL surface, is this phase's subject); this gate confirms the two views of the same underlying counters never diverge once both exist |
 
 ### Phase 4 — benchmark, package, publish · **~1–1.5 weeks**
 
@@ -385,6 +386,7 @@ Each demo ships as a `docker compose up` with a README of ≤ 1 screen.
 | D7 | PostgreSQL License | no | the trust signal; aligns with §8's whole purpose |
 | D8 | Valkey (BSD-3) is the behavioral reference; Redis source is never opened | no | RSAL/SSPL/AGPL contamination risk is existential for D7 |
 | D9 | T0/T1 command scope only in v0.1; no data structures | yes | cache coverage per effort is maximal; structures are Redka's tarpit |
+| D10 | SCAN cursor state lives in a bounded, server-side registry (~64 live cursors, 60s idle expiry) keyed by cursor id, not per-connection — snapshot cursors, not true Redis reverse-binary iteration over a resizing hash table | yes (true reverse-binary iteration later, if a real workload needs it) | Rust's `std::HashMap` doesn't expose the bucket-stability a reverse-binary cursor needs. A per-connection snapshot was the first design, rejected before being built: pooled clients (e.g. redis-py `scan_iter` over a connection pool) send successive `SCAN` calls on different physical connections, so connection-scoped cursor state breaks them intermittently. On registry miss/overflow, restart the scan from cursor 0 — dups allowed by the documented guarantee ("no misses of stable keys, dups possible"), misses never |
 
 ---
 
@@ -402,6 +404,7 @@ Each demo ships as a `docker compose up` with a README of ≤ 1 screen.
 | managed-PG unavailability caps adoption | accepted | stated in README; audience is self-host/Docker; irrelevant to portfolio/virality goals |
 | trademark/name trouble | low | no "redis" in name; nominative compatibility claim only |
 | scope creep into data structures / persistence | medium | D5, D9; backlog is where those ideas go to wait |
+| **RESP command-dispatch panic kills the whole service, silently and permanently, undetectably from SQL** | high | Empirically confirmed Phase 2 (deliberately triggered, removed after testing): pgrx mandates `BGWORKER_SHMEM_ACCESS`, so an *external* SIGKILL of the worker forces PG's own crash-recovery cycle (loud, self-healing — every client drops, but postmaster relaunches everything automatically). An *in-process Rust panic* is a **different, worse** failure: `std::thread::spawn` catches it at the OS-thread boundary, so the process never crashes, but D4's single-threaded model means that one thread owned the listener *and every connection* — losing it means every connection resets, no new connection is ever accepted again, yet `SELECT 1` and the bgworker's own OS process stay completely healthy throughout. No automatic recovery; a monitoring system watching "is Postgres up" sees green the whole time. **Mitigation implemented**: `catch_unwind` panic fences at both the per-connection dispatch call (primary — contains the damage to one connection) and the server thread's top-level closure (secondary, defense in depth) in `pg_resp/src/lib.rs`; verified by re-running the deliberate-panic test after the fix — only the triggering connection was lost, a bystander connection and a new connection both kept working. `release` profile's `panic = "unwind"` (root `Cargo.toml`) is required for `catch_unwind` to work at all and is confirmed set. Full detail: `.claude/skills/pgrx-patterns/SKILL.md` §8.8, `docs/ops.md`'s blast-radius note, `reports/phase2.md` |
 
 ---
 

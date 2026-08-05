@@ -23,8 +23,9 @@ mod dispatch;
 // bgworker thread does PG lifecycle only; a spawned server thread owns the
 // TCP listener, connections, and the resp-store `Store` (D4: single-threaded
 // command execution, no locks on the hot path). Per pgrx-patterns skill
-// §8.7 (Phase 0's kill-9 finding): dispatch must never panic — a panic here
-// takes down the whole Postgres instance, not just this connection.
+// §8.8: without the per-connection panic fence below, a panic in one
+// connection's dispatch kills the entire server thread — every connection,
+// every future connection — silently, while Postgres itself stays healthy.
 //
 // Uses mio (bible §3.2 names it explicitly) for readiness-based I/O rather
 // than S1's fixed-interval sleep-and-poll: the first working version of

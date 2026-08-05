@@ -229,9 +229,48 @@ bgworker — only from the registered entry-point thread:
    part of the bible's gate text ("postmaster restarts it... PG itself
    unaffected") holds — but "PG itself unaffected" should be read as
    "the postmaster survives and self-heals," **not** "other connections are
-   undisturbed." **Real consequence for Phase 1+: a panic anywhere in the
-   RESP command-dispatch path is not a contained failure — it takes down
-   every other SQL client connected to the same Postgres instance and forces
-   a crash-recovery cycle.** This makes a top-level `catch_unwind` (or
-   simply: never let command-handling code panic, full stop) a hard
-   correctness requirement for the event loop, not a nice-to-have.
+   undisturbed." This row is specifically about an **external SIGKILL of the
+   whole process** — see item 8 for the different (and, in its own way,
+   worse) failure mode of an **in-process Rust panic**, which does *not*
+   trigger this crash-recovery path at all.
+
+8. **An in-process panic in the RESP command-dispatch path does not cause
+   the item-7 crash-recovery cycle — it silently kills the entire server
+   thread instead, while Postgres and the bgworker process itself stay
+   completely healthy.** Deliberately triggered (Phase 2, a temporary panic
+   command wired into `dispatch()`, removed after testing) and observed
+   directly: `std::thread::spawn` catches the unwinding panic at the OS
+   thread boundary as designed — the *process* doesn't crash — but D4's
+   single-threaded model means that one thread owns the `mio` listener
+   *and every connection*. Losing it means: every existing connection resets
+   (empty read), no new connection is ever accepted again (`Connection
+   refused`), yet `SELECT 1` against the same Postgres instance keeps
+   working fine and the bgworker OS process never exits. There is no
+   automatic recovery — the RESP service is simply, silently, and
+   *permanently* dead until the next real restart (`pg_ctl restart` or an
+   actual crash). An operator or monitoring system watching "is Postgres
+   up" would see green the entire time.
+   - **This is worse than item 7 in one specific way**: item 7's failure is
+     loud (every client disconnects, logs show a crash-recovery cycle) and
+     *self-healing* (postmaster relaunches everything automatically). Item
+     8's failure is quiet and *permanent* — nothing self-heals it.
+   - **Fix (implemented in `pg_resp/src/lib.rs`)**: wrap the per-connection
+     dispatch call in `std::panic::catch_unwind` (`AssertUnwindSafe`) so a
+     panic drops only that one connection — the thread, the listener, and
+     every other connection keep running. Verified: after the fix, the
+     *same* deliberate panic dropped only the triggering connection; a
+     bystander connection opened beforehand kept working, and a brand-new
+     connection after the panic succeeded immediately. A second, outer
+     `catch_unwind` around the whole server-thread closure is defense in
+     depth (logs loudly if a panic somehow escapes the per-connection fence,
+     rather than vanishing) but is not itself sufficient — see the next trap.
+   - **Self-inflicted trap while building the fix**: the first attempt
+     called `log!()` inside the `catch_unwind` handler, *on the server
+     thread* — violating this same skill's §7 forbidden-list rule (`log!`
+     is main-thread-only). pgrx enforces that at **runtime**: it panicked
+     with `"postgres FFI may not be called from multiple threads"`, and
+     that second, unfenced panic escaped straight past both fences, killing
+     the thread anyway and defeating the whole fix. Any logging inside a
+     server-thread panic handler must use something thread-safe (plain
+     `eprintln!` — PG's log collector still captures a bgworker's stderr
+     into the same server log), never `log!`/`ereport!`.
