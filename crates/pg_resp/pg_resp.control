@@ -1,6 +1,26 @@
 comment = 'pg_resp: Redis-protocol-compatible cache inside a Postgres background worker'
-default_version = '@CARGO_VERSION@'
-module_pathname = 'pg_resp'
+# The EXTENSION version, deliberately decoupled from the crate version and
+# pinned rather than templated from @CARGO_VERSION@.
+#
+# The crate is 0.1.0-rc while the extension it installs is 0.1.0, because these
+# are two different surfaces with two different rules. A crate version is a
+# release label and can churn freely. An extension version is a permanent
+# identifier baked into a filename that `CREATE EXTENSION` resolves by name, and
+# every later version needs an upgrade script FROM it
+# (sql/pg_resp--0.1.0--0.1.1.sql, and so on — pg_net ships thirty of these).
+# Shipping the release candidate as extension version '0.1.0-rc' would mean
+# every rc install needed a 0.1.0-rc--0.1.0 upgrade script at release, to
+# migrate nothing at all.
+#
+# This must stay equal to the versioned script's filename in sql/. If they
+# disagree, `CREATE EXTENSION pg_resp` fails with "extension has no
+# installation script available", and it fails on a user's machine at install
+# time rather than in CI.
+default_version = '0.1.0'
+# $libdir/ is the contrib convention (pg_net's control.in precedent). A bare
+# 'pg_resp' happens to resolve anyway via dynamic_library_path's default, so
+# this is a convention fix, not a bug fix.
+module_pathname = '$libdir/pg_resp'
 relocatable = false
 superuser = true
 trusted = false

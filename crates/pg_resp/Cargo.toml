@@ -1,7 +1,13 @@
 [package]
 name = "pg_resp"
-version = "0.0.0"
+version = "0.1.0-rc"
 edition = "2021"
+description = "A Redis-protocol (RESP2) cache server inside a PostgreSQL background worker"
+license = "PostgreSQL"
+repository = "https://github.com/CronosClaus/pg_resp"
+readme = "../../README.md"
+keywords = ["postgresql", "redis", "resp", "cache", "pgrx"]
+categories = ["database"]
 
 [lib]
 crate-type = ["cdylib", "lib"]
