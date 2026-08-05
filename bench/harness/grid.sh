@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # STAGE B — the full approved grid of bible §10, warm-up v2.
 #
-#   6 arms x 18 workloads = 108 cells
-#   value sizes 64 / 1024 / 16384  x  pipeline 1 / 16  x  connections 1 / 8 / 64
+#   6 arms x 15 workloads = 90 cells
+#   64 B and 1 KB at pipeline 1 and 16; 16 KB at pipeline 16 ONLY
+#   x connections 1 / 8 / 64.  16 KB at pipeline 1 is excluded as a transport
+#   artefact — see the WORKLOADS comment below and ENV.md §22.
 #   each cell 3 x 60 s, spread-gated at 8%, one arm live at a time
 #
 # Plus two labelled side sets that never mix into the ranked grid:
@@ -44,9 +46,30 @@ mkdir -p "$GRID" "$ANOM" "$SUPP" ~/logs
 
 WARMUP_KEYS=200000
 ARMS_ALL=(P-def P-opt R-def R-opt V-opt K-pg)
-SIZES=(64 1024 16384)
-PIPES=(1 16)
 CONNS=(1 8 64)
+
+# WORKLOADS as explicit size:pipeline pairs, because 16 KB is not run at
+# pipeline 1 and a nested SIZES x PIPES loop cannot express that.
+#
+# 16384:1 is EXCLUDED as a transport artefact, not as an inconvenience. A request
+# of 16384 B of value plus RESP framing exceeds the client socket's default send
+# buffer (net.ipv4.tcp_wmem default = 16384 on this box), which forces a partial
+# write whose completion waits on the receiver's delayed ACK — ~41 ms, every
+# operation. Evidence that it is the transport and not any server:
+#
+#   * all four servers collapse identically (pg_resp 24.55, Redis 24.37,
+#     Valkey 24.38, Redka 23.87 ops/s), and Redis already sets TCP_NODELAY
+#   * the boundary is 44 bytes wide: data-size 16340 -> 25,268 ops/s,
+#     16384 -> 24.6 ops/s
+#   * per-operation latency is INVARIANT at ~40.7 ms across a 64x change in
+#     connection count (c1 24.6 / c8 196.7 / c64 1570.2 ops/s, exactly linear),
+#     which no server-side bottleneck can produce
+#   * the same payload at pipeline 16 runs at 116k-163k ops/s
+#
+# No in-box fix exists: raising tcp_wmem needs root (unavailable), memtier at the
+# pinned commit exposes no send-buffer option, and --sysctl is refused under
+# --network host. Full record in bench/results/ENV.md §22.
+WORKLOADS=(64:1 64:16 1024:1 1024:16 16384:16)
 
 ATTEMPTED=0
 VOIDED=0
@@ -189,14 +212,13 @@ run_cell() { # arm data_size pipeline conns outdir [extra sweep args...]
 }
 
 echo "### GRID START $(date -u +%FT%TZ)  head=$(git rev-parse --short HEAD)"
-echo "### warm-up v2, ${WARMUP_KEYS} keys; 6 arms x 18 workloads; 3x60s per cell"
+echo "### warm-up v2, ${WARMUP_KEYS} keys; 6 arms x ${#WORKLOADS[@]} workloads x ${#CONNS[@]} conns; 3x60s per cell"
 
 for arm in "${ARMS_ALL[@]}"; do
-  for ds in "${SIZES[@]}"; do
-    for pl in "${PIPES[@]}"; do
-      for conns in "${CONNS[@]}"; do
-        run_cell "$arm" "$ds" "$pl" "$conns" "$GRID"
-      done
+  for wspec in "${WORKLOADS[@]}"; do
+    IFS=: read -r ds pl <<< "$wspec"
+    for conns in "${CONNS[@]}"; do
+      run_cell "$arm" "$ds" "$pl" "$conns" "$GRID"
     done
   done
 done
