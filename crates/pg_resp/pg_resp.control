@@ -1,4 +1,4 @@
-comment = 'pg_resp:  Created by pgrx'
+comment = 'pg_resp: Redis-protocol-compatible cache inside a Postgres background worker'
 default_version = '@CARGO_VERSION@'
 module_pathname = 'pg_resp'
 relocatable = false
