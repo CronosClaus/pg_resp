@@ -1,0 +1,177 @@
+name: CI
+
+# Two jobs, deliberately split by cost:
+#
+#   fast-loop  — the PG-free crates (resp-proto, resp-store, resp-client) plus
+#                fmt and clippy. Seconds. Runs on every push.
+#   pg-matrix  — the pgrx/FFI half, once per supported PostgreSQL major.
+#                Minutes, and needs a real PostgreSQL install per leg.
+#
+# Two things here are load-bearing and must not be "optimised" away:
+#
+# 1. **`target/` is never cached.** Only the cargo registry is. Phase 3 of this
+#    project discovered that binding generation had been broken since Phase 0
+#    and nobody knew, because `target/` always held a stale copy of
+#    `pgrx-pg-sys`'s generated bindings and nothing invalidated the
+#    fingerprint. A `cargo clean` would have bricked the tree at any point.
+#    Caching `target/` here would recreate exactly that blind spot in the one
+#    place built to catch it. The cost is a few minutes per run; the thing it
+#    buys is that every green run is a genuine from-scratch build.
+#
+# 2. **`libclang-dev` comes from apt.** The developer machine has no
+#    passwordless sudo, so it vendors libclang under `~/.cargo` with absolute
+#    paths (see `.claude/skills/pgrx-patterns` §8.2). That workaround is
+#    machine-local and fragile by nature. CI is the environment that proves the
+#    build works against a normal, distro-provided libclang — so it installs
+#    the real package and sets no LIBCLANG_PATH or BINDGEN_EXTRA_CLANG_ARGS at
+#    all. If bindgen fails here but succeeds locally, the vendored setup is
+#    hiding something.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  # Pinned to match the developer machine exactly (bible §0.7, determinism).
+  # Bump deliberately, in its own commit, never as a side effect.
+  RUST_VERSION: "1.97.1"
+  PGRX_VERSION: "0.19.2"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fast-loop:
+    name: fast loop (PG-free crates, fmt, clippy)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust ${{ env.RUST_VERSION }}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          components: rustfmt, clippy
+
+      # Registry only — never target/. See the header note.
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: cargo-registry-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-registry-${{ runner.os }}-
+
+      - name: cargo fmt --check
+        run: cargo fmt --all --check
+
+      # The PG-free crates build and test without libclang or any PostgreSQL,
+      # which is the whole point of bible §6's crate split — so this job stays
+      # fast and gives the first signal on a bad push.
+      - name: cargo test (resp-proto, resp-store, resp-client)
+        run: cargo test -p resp-proto -p resp-store -p resp-client
+
+      - name: cargo clippy (PG-free crates)
+        run: cargo clippy -p resp-proto -p resp-store -p resp-client --all-targets -- -D warnings
+
+  pg-matrix:
+    name: PG ${{ matrix.pg }} (build, clippy, pgrx test)
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: [16, 17, 18]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust ${{ env.RUST_VERSION }}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          components: clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: cargo-registry-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-registry-${{ runner.os }}-
+
+      # Runners ship a PostgreSQL, but not every major we support and not
+      # reliably the matching -dev package, so use PGDG for all three.
+      - name: Install PostgreSQL ${{ matrix.pg }} + build deps (real libclang-dev)
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ca-certificates curl gnupg lsb-release \
+            build-essential libclang-dev pkg-config libssl-dev libreadline-dev zlib1g-dev
+          # The runner image pre-installs a PostgreSQL whose cluster would
+          # occupy 5432 and whose packages can conflict with PGDG's.
+          sudo systemctl stop postgresql || true
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+            | sudo gpg --dearmor -o /usr/share/keyrings/pgdg.gpg
+          echo "deb [signed-by=/usr/share/keyrings/pgdg.gpg] \
+            https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            postgresql-${{ matrix.pg }} postgresql-server-dev-${{ matrix.pg }}
+          # PGDG starts a cluster on install; pgrx manages its own, so stop it.
+          sudo pg_ctlcluster ${{ matrix.pg }} main stop || true
+          echo "PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg }}/bin/pg_config" >> "$GITHUB_ENV"
+
+      # Proves the claim in the header note: no vendored libclang anywhere.
+      - name: Assert no vendored libclang is in play
+        run: |
+          set -euo pipefail
+          test -z "${LIBCLANG_PATH:-}"
+          test -z "${BINDGEN_EXTRA_CLANG_ARGS:-}"
+          test ! -f ~/.cargo/config.toml
+          echo "libclang from apt:"; dpkg -l libclang-dev | tail -1
+
+      - name: Install cargo-pgrx ${{ env.PGRX_VERSION }}
+        run: cargo install cargo-pgrx --locked --version "${PGRX_VERSION}"
+
+      # Points pgrx at the distro PostgreSQL instead of letting it download and
+      # compile one from source, which would add ~15 min per matrix leg.
+      - name: cargo pgrx init (system PostgreSQL ${{ matrix.pg }})
+        run: cargo pgrx init --pg${{ matrix.pg }} "$PG_CONFIG"
+
+      # `default = ["pg18"]`, so every non-18 leg must opt out of the default
+      # feature or two pgN features are active at once and pgrx errors.
+      - name: cargo build (pg${{ matrix.pg }})
+        working-directory: crates/pg_resp
+        run: cargo build --no-default-features --features pg${{ matrix.pg }}
+
+      - name: cargo clippy (pg${{ matrix.pg }})
+        working-directory: crates/pg_resp
+        run: |
+          cargo clippy --no-default-features --features pg${{ matrix.pg }} \
+            --all-targets -- -D warnings
+
+      # The slow loop. Includes the three #[pg_test]s that pin D12's privilege
+      # semantics, which need a live bgworker — pgrx supplies
+      # shared_preload_libraries via the crate's postgresql_conf_options() hook.
+      - name: cargo pgrx test pg${{ matrix.pg }}
+        working-directory: crates/pg_resp
+        run: cargo pgrx test pg${{ matrix.pg }}
+
+      - name: Upload PostgreSQL logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pg-logs-pg${{ matrix.pg }}
+          path: |
+            ~/.pgrx/*.log
+            ~/.pgrx/data-*/log/**
+          if-no-files-found: ignore

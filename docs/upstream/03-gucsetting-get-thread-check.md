@@ -137,7 +137,7 @@ setup) before any thread it spawns can run.
 
 ## Context
 
-Found while building [pg_resp](https://github.com/OWNER/pg_resp), a
+Found while building [pg_resp](https://github.com/CronosClaus/pg_resp), a
 Redis-protocol cache server that runs inside a Postgres background worker. Its
 network loop lives on a spawned thread, so every one of its five GUCs has to be
 read on the main thread and passed down — a pattern we arrived at by hitting

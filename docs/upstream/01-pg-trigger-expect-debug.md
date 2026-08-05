@@ -143,7 +143,7 @@ is what we ended up doing at every failure path in our trigger function.
 
 ## Context
 
-Found while building [pg_resp](https://github.com/OWNER/pg_resp), a
+Found while building [pg_resp](https://github.com/CronosClaus/pg_resp), a
 Redis-protocol cache that runs inside a Postgres background worker. Its
 `resp.evict()` trigger helper had five carefully written validation messages
 that were all invisible to users until we traced this — every one of them
