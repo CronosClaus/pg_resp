@@ -55,6 +55,7 @@ import shlex
 import socket
 import subprocess
 import sys
+import threading
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -124,6 +125,25 @@ class Result:
     spread_ok: bool
     raw_file: str
     rerun: str
+    # Explicit client configuration. Stage A's artifacts lack these and curve.py
+    # falls back to parsing them out of `rerun`; recording them directly means a
+    # consumer never has to parse a command line to know what ran.
+    data_size: int = 0
+    pipeline: int = 0
+    clients: int = 0
+    threads: int = 0
+    # Warm-up protocol identity. A published table must not mix v1 and v2
+    # (phase4-night2.md), and the only way to enforce that downstream is for each
+    # cell to carry which protocol produced it.
+    warmup_protocol: str = "unknown"
+    warmup_keys: int = 0
+    warmup_time: int = 0
+    # Saturation evidence (ENV.md §21.3).
+    cpu_peak_pct: float | None = None
+    cpu_median_pct: float | None = None
+    cpu_samples: int = 0
+    saturated: bool = False
+    saturation_enforced: bool = False
 
 
 def rel(p: Path) -> str:
@@ -362,6 +382,32 @@ def build_warmup_argv(args, cell: Cell) -> list[str]:
     cold and a warm arm, in a direction that flatters whichever arm was colder.
     Equal warm-up per arm is what makes a cell a comparison rather than a
     coincidence.
+
+    TWO PROTOCOLS, AND v2 IS THE PUBLISHED ONE
+    ------------------------------------------
+    **v1 — `--warmup-time S`: a fixed DURATION.** What Stage A used, and the
+    reason its hit rates swung from 36% to 100% across cells of the same arm: 60 s
+    at pipeline 16 with 64 connections writes vastly more data than 60 s at
+    pipeline 1 with 1 connection, so every cell began from a different degree of
+    fill. The arms' hit-rate difference spanned a ~65-point band
+    (-27.6 to +37.0 pts). Equal *duration* is not equal *treatment* when the
+    client configuration is the thing that varies along the curve.
+
+    **v2 — `--warmup-keys N`: a fixed NUMBER OF WRITES.** Every cell of every arm
+    pre-populates with the same number of SETs over the same key space and access
+    pattern the measured run will use, at the cell's own payload size. The written
+    volume is then a property of the protocol rather than of the cell's
+    concurrency, which is what makes hit rates comparable across the curve.
+
+    Pre-population deliberately uses the measured run's `G:G` gaussian pattern
+    over the full 1M key space rather than a sequential fill of a smaller range:
+    a sequential fill of keys 1..N would populate a region the gaussian read
+    pattern (centred mid-range) largely does not visit, producing a low hit rate
+    on every arm for a reason that has nothing to do with either design.
+
+    What v2 does NOT do is equalise hit rate *between* arms. A capped arm evicts
+    and an uncapped one does not (ENV.md §20); that difference is architectural,
+    is the thing under test, and is reported per cell rather than engineered away.
     """
     argv = taskset_prefix(args) + [
         str(args.memtier),
@@ -375,13 +421,186 @@ def build_warmup_argv(args, cell: Cell) -> list[str]:
         f"--pipeline={cell.pipeline}",
         f"--clients={cell.clients}",
         f"--threads={cell.threads}",
-        f"--test-time={args.warmup_time}",
         "--run-count=1",
         "--hide-histogram",
     ]
+    if args.warmup_keys:
+        # --requests is PER CLIENT, and clients multiply by threads, so the
+        # divisor is total connections. Rounded up so the pass never falls short
+        # of the declared key count; at least 1 request per connection.
+        per_client = max(1, -(-args.warmup_keys // cell.total_conns))
+        argv.append(f"--requests={per_client}")
+    else:
+        argv.append(f"--test-time={args.warmup_time}")
     if args.password:
         argv.append(f"--authenticate={args.password}")
     return argv
+
+
+def warmup_protocol_note(args, cell: Cell) -> str:
+    """One line for the raw header saying which warm-up protocol produced the
+    state this cell was measured against. A published table must not mix the
+    two, so the artifact has to say which it is."""
+    if args.warmup_keys:
+        per_client = max(1, -(-args.warmup_keys // cell.total_conns))
+        actual = per_client * cell.total_conns
+        return (
+            f"v2 fixed key-count — {args.warmup_keys} requested, {actual} actual "
+            f"({per_client} per connection x {cell.total_conns} connections), "
+            f"SET-only, G:G over 1M keys, {cell.data_size} B values"
+        )
+    if args.warmup_time:
+        return (
+            f"v1 fixed duration — {args.warmup_time}s SET-only at this cell's own "
+            "client config. SUPERSEDED: written volume varies with concurrency, "
+            "so hit rate is not comparable across cells (see phase4-night2.md)"
+        )
+    return "NONE — valid for harness validation only, never for a comparison"
+
+
+SERVER_CONTAINERS = {
+    "P-def": "pg_resp_bench_pg",
+    "P-opt": "pg_resp_bench_pg",
+    "R-def": "pg_resp_bench_R_def",
+    "R-opt": "pg_resp_bench_R_opt",
+    "V-opt": "pg_resp_bench_V_opt",
+    # K-pg is two processes: redka translates, PostgreSQL executes. Both are
+    # "the server" for saturation purposes, and reporting only one of them would
+    # understate how hard the arm is working.
+    "K-pg": "pg_resp_bench_K_pg,pg_resp_bench_pg",
+}
+
+
+class CpuSampler(threading.Thread):
+    """Sample the server container(s)' CPU every ~1s for the duration of a run.
+
+    ENV.md §21.3 requires this: a throughput comparison in which one server was
+    never core-saturated is measuring the harness, not the servers. The samples
+    are committed beside the raw output so the claim is checkable rather than
+    asserted.
+
+    `docker stats` reports CPU as a percentage of ONE core, so 100% means one
+    logical CPU fully busy. That is the relevant ceiling here because both
+    pg_resp (D4) and Redis execute commands on a single thread — a
+    single-threaded server pinned to four CPUs saturates at ~100%, not ~400%,
+    and a rule expecting 400% would void every honest cell.
+    """
+
+    def __init__(self, arm: str, interval: float = 1.0):
+        super().__init__(daemon=True)
+        self.names = SERVER_CONTAINERS.get(arm, "").split(",")
+        self.names = [n for n in self.names if n]
+        self.interval = interval
+        self.samples: list[float] = []
+        self.raw: list[str] = []
+        self._stop = threading.Event()
+
+    def run(self) -> None:
+        while not self._stop.is_set():
+            total = 0.0
+            parts = []
+            for name in self.names:
+                proc = subprocess.run(
+                    ["docker", "stats", "--no-stream", "--format", "{{.CPUPerc}}", name],
+                    capture_output=True, text=True,
+                )
+                val = proc.stdout.strip().rstrip("%")
+                try:
+                    pct = float(val)
+                except ValueError:
+                    continue
+                total += pct
+                parts.append(f"{name}={pct:.1f}%")
+            if parts:
+                self.samples.append(total)
+                self.raw.append(f"{total:8.1f}%  " + "  ".join(parts))
+            # docker stats --no-stream itself costs ~0.5-1.5s, so this is a
+            # best-effort ~1s cadence, not a guaranteed one. The sample count is
+            # recorded so a reader can see the real cadence.
+            self._stop.wait(self.interval)
+
+    def stop(self) -> None:
+        self._stop.set()
+
+    def verdict(self, threshold: float) -> tuple[bool, str]:
+        if not self.samples:
+            return False, "no CPU samples collected (docker stats unavailable?)"
+        s = sorted(self.samples)
+        med = s[len(s) // 2]
+        peak = s[-1]
+        line = (
+            f"{len(s)} samples over ~{len(s) * self.interval:.0f}s — "
+            f"min {s[0]:.1f}%  median {med:.1f}%  peak {peak:.1f}%  "
+            f"(100% = one logical CPU fully busy)"
+        )
+        return peak >= threshold, line
+
+
+def live_config(args, cell: Cell) -> list[str]:
+    """Ask the RUNNING server what it is configured as, and put the answer in the
+    raw header (ENV.md §21.3).
+
+    Not the config file — the server. A file that was mounted but never parsed,
+    or an image whose defaults differ from what the file assumes, is invisible to
+    any check that reads the file. The smoke stage already produced exactly that
+    class of error: pg_resp was preloaded from postgresql.conf.sample while the
+    arm's own conf said nothing about it (ENV.md §19 item 2).
+    """
+    out: list[str] = []
+    if cell.arm.startswith("P-"):
+        for guc in (
+            "pg_resp.max_memory", "pg_resp.eviction", "pg_resp.bind_address",
+            "shared_preload_libraries", "shared_buffers", "synchronous_commit",
+        ):
+            proc = run([
+                args.psql, "-h", os.path.expanduser(args.pg_host), "-p", str(args.pg_port),
+                "-d", "postgres", "-tAqc", f"SHOW {guc};",
+            ])
+            val = proc.stdout.strip() if proc.returncode == 0 else f"<query failed rc={proc.returncode}>"
+            out.append(f"  SHOW {guc} = {val}")
+        return out
+
+    # Redis/Valkey/redka: ask over RESP, on the same loopback path the
+    # measurement uses.
+    params = ["save", "appendonly", "io-threads", "maxmemory", "maxmemory-policy"]
+    for p in params:
+        reply = resp_command(args, ["CONFIG", "GET", p])
+        out.append(f"  CONFIG GET {p} -> {reply}")
+    return out
+
+
+def resp_command(args, words: list[str]) -> str:
+    """One RESP command over a raw socket, reply rendered for the header.
+
+    Raw socket rather than a containerised redis-cli, for the same reason the
+    pre-run probe uses one: a check that does not traverse the measurement path
+    can pass for a server the benchmark cannot reach (progress report §D.2).
+    """
+    try:
+        with socket.create_connection((args.host, args.port), timeout=5) as sock:
+            payload = b""
+            if args.password:
+                payload += _resp_cmd(b"AUTH", args.password.encode())
+            payload += _resp_cmd(*[w.encode() for w in words])
+            sock.sendall(payload)
+            sock.settimeout(5)
+            buf = b""
+            deadline = 40
+            while len(buf) < 4096 and deadline > 0:
+                try:
+                    chunk = sock.recv(4096)
+                except socket.timeout:
+                    break
+                if not chunk:
+                    break
+                buf += chunk
+                deadline -= 1
+                if buf.endswith(b"\r\n"):
+                    break
+    except OSError as e:
+        return f"<unreachable: {e}>"
+    text = buf.decode("utf-8", "replace").replace("\r\n", " ").strip()
+    return text or "<empty reply>"
 
 
 STATS_ROW = re.compile(
@@ -530,6 +749,40 @@ def main() -> int:
         "in the raw header.",
     )
     ap.add_argument(
+        "--warmup-keys",
+        type=int,
+        default=0,
+        help="WARM-UP v2: pre-populate with this many SET requests (a fixed "
+        "NUMBER OF WRITES) instead of a fixed duration. Takes precedence over "
+        "--warmup-time. v2 is the published protocol — a fixed duration writes "
+        "different volumes at different concurrencies, which is what made Stage "
+        "A's hit rate swing 36%%-100%% across cells of one arm.",
+    )
+    ap.add_argument(
+        "--cpu-sample-interval",
+        type=float,
+        default=1.0,
+        help="seconds between server CPU samples during the measured run "
+        "(ENV.md §21.3). Samples are always taken and always committed.",
+    )
+    ap.add_argument(
+        "--saturation-threshold",
+        type=float,
+        default=90.0,
+        help="peak server CPU%% at or above which the arm counts as core "
+        "saturated. 100%% = one logical CPU fully busy; both pg_resp (D4) and "
+        "Redis execute commands single-threaded, so ~100%% is the real ceiling "
+        "and a 400%% expectation would void every honest cell.",
+    )
+    ap.add_argument(
+        "--require-saturation",
+        action="store_true",
+        help="VOID the cell if the server never reached --saturation-threshold. "
+        "Use for anomaly-comparison cells (ENV.md §21.3), NOT for the whole grid: "
+        "low-load cells are legitimate latency-probing points on the "
+        "throughput-vs-p99 curve and are meant to be unsaturated.",
+    )
+    ap.add_argument(
         "--client-pin-mechanism",
         default="taskset",
         choices=["taskset", "docker-cpuset"],
@@ -592,25 +845,46 @@ def main() -> int:
     started = datetime.now(timezone.utc).isoformat()
     output = ""
     warmup_argv: list[str] = []
-    if void_reason is None and args.warmup_time > 0:
+    if void_reason is None and (args.warmup_keys > 0 or args.warmup_time > 0):
         warmup_argv = build_warmup_argv(args, cell)
         wproc = run(warmup_argv)
         if wproc.returncode != 0:
             void_reason = f"warm-up pass exited {wproc.returncode}"
         else:
-            verdict.append(
-                f"warm-up: {args.warmup_time}s SET-only over the same keyspace"
-            )
+            verdict.append("warm-up: " + warmup_protocol_note(args, cell))
     elif void_reason is None:
         verdict.append(
-            "warm-up: NONE (--warmup-time 0) — valid for harness validation, "
+            "warm-up: NONE — valid for harness validation, "
             "NOT valid for a cross-arm comparison"
         )
+
+    # Captured AFTER warm-up and BEFORE the measured run: this is the
+    # configuration the timed run actually executes under (ENV.md §21.3).
+    config_lines: list[str] = []
     if void_reason is None:
+        config_lines = live_config(args, cell)
+
+    sampler: CpuSampler | None = None
+    sat_line = "not sampled"
+    saturated = False
+    if void_reason is None:
+        sampler = CpuSampler(cell.arm, interval=args.cpu_sample_interval)
+        sampler.start()
         proc = run(argv)
+        sampler.stop()
+        sampler.join(timeout=5)
         output = proc.stdout + proc.stderr
         if proc.returncode != 0:
             void_reason = f"memtier exited {proc.returncode}"
+        saturated, sat_line = sampler.verdict(args.saturation_threshold)
+        if args.require_saturation and void_reason is None and not saturated:
+            void_reason = (
+                f"server never reached core saturation ({sat_line}); "
+                f"--require-saturation was set because this cell is part of an "
+                "anomaly comparison, and a comparison where one server is not "
+                "core-saturated measures the harness rather than the servers "
+                "(ENV.md §21.3)"
+            )
 
     stats: dict | None = None
     spread_pct: float | None = None
@@ -681,6 +955,11 @@ def main() -> int:
         f"started (UTC)  : {started}",
         f"server note    : {args.server_note or '(none given)'}",
         f"client pinning : {client_pinning_note(args)}",
+        f"warm-up        : {warmup_protocol_note(args, cell)}",
+        f"server CPU     : {sat_line}",
+        f"saturated      : {'YES' if saturated else 'NO'} "
+        f"(threshold {args.saturation_threshold:.0f}% peak; "
+        f"{'enforced' if args.require_saturation else 'recorded only, not enforced for this cell'})",
         f"env class      : {args.env_class} — {ENV_CLASSES[args.env_class]}",
         f"publishable    : {'YES' if publishable else 'NO'}",
         "",
@@ -711,6 +990,11 @@ def main() -> int:
             "why 820 MB of NOAUTH lines were once deleted instead of committed.",
             "*" * 78,
         ]
+    header += ["", "live server configuration, read from the RUNNING server (ENV.md §21.3):"]
+    header += config_lines or ["  (not captured)"]
+    if sampler is not None and sampler.raw:
+        header += ["", f"server CPU samples, ~{args.cpu_sample_interval:g}s apart (total, then per container):"]
+        header += [f"  {line}" for line in sampler.raw]
     header += ["", "=" * 78, "raw memtier output follows", "=" * 78, ""]
 
     raw_path.write_text("\n".join(header) + output)
@@ -741,6 +1025,21 @@ def main() -> int:
         spread_ok=(spread_pct is not None and spread_pct <= args.spread_threshold),
         raw_file=rel(raw_path),
         rerun=rerun,
+        data_size=cell.data_size,
+        pipeline=cell.pipeline,
+        clients=cell.clients,
+        threads=cell.threads,
+        warmup_protocol=("v2" if args.warmup_keys else ("v1" if args.warmup_time else "none")),
+        warmup_keys=args.warmup_keys,
+        warmup_time=args.warmup_time,
+        cpu_peak_pct=(max(sampler.samples) if sampler and sampler.samples else None),
+        cpu_median_pct=(
+            sorted(sampler.samples)[len(sampler.samples) // 2]
+            if sampler and sampler.samples else None
+        ),
+        cpu_samples=(len(sampler.samples) if sampler else 0),
+        saturated=saturated,
+        saturation_enforced=args.require_saturation,
     )
 
     json_path = out_dir / f"{day}-{cell.arm}-{cell.workload_id}.json"

@@ -1,4 +1,12 @@
-.PHONY: compat
+.PHONY: compat harness-test
+
+# Golden tests for the benchmark harness's table generator. Pure stdlib, runs in
+# under a second, and pins the cross-payload bug that once produced a 312x
+# headline (see bench/harness/test_curve.py). Run this before trusting any
+# generated table.
+harness-test:
+	@python3 -m unittest discover -s bench/harness -p 'test_*.py' -v
+
 
 compat:
 	@cd tests/compat && \

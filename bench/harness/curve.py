@@ -66,6 +66,7 @@ CLIENT_FLAGS = [
     "test-time",
     "run-count",
     "warmup-time",
+    "warmup-keys",
     "client-cpus",
     "client-pin-mechanism",
 ]
