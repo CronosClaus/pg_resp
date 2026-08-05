@@ -1,0 +1,70 @@
+# Demo app 2: trigger-based cache invalidation
+# Run with: INVALIDATION=app docker compose up --build --abort-on-container-exit
+#        or INVALIDATION=trigger docker compose up --build --abort-on-container-exit
+# (default is trigger)
+
+version: "3.8"
+
+services:
+  pg_resp:
+    build:
+      context: ../..
+      dockerfile: docker/pg_resp.Dockerfile
+    environment:
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "6379:6379"
+    # Test-only override: pg_resp.bind_address defaults to 127.0.0.1 (bible
+    # D6's real security default, unchanged in the image). A loopback-bound
+    # listener inside a container's network namespace does not accept
+    # traffic arriving via its eth0 interface, so sibling containers on this
+    # compose network (the app, load-gen) cannot reach it at all —
+    # confirmed by hand before adding this override.
+    # 0.0.0.0 here is a test-harness necessity, not a deployment
+    # recommendation; see docs/ops.md's bind-address warning.
+    command: ["postgres", "-c", "pg_resp.bind_address=0.0.0.0"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  setup:
+    build:
+      context: .
+      dockerfile: Dockerfile.setup
+    depends_on:
+      pg_resp:
+        condition: service_healthy
+    environment:
+      INVALIDATION: ${INVALIDATION:-trigger}
+    volumes:
+      - ./init-arm-a.sql:/app/init-arm-a.sql:ro
+      - ./init-arm-b.sql:/app/init-arm-b.sql:ro
+      - ./setup.sh:/app/setup.sh:ro
+    command: ["bash", "/app/setup.sh"]
+
+  app:
+    build:
+      context: ./app
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    environment:
+      INVALIDATION: ${INVALIDATION:-trigger}
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  load-gen:
+    build:
+      context: ./load-gen
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      INVALIDATION: ${INVALIDATION:-trigger}
