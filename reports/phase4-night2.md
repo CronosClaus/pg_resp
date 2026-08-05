@@ -89,6 +89,7 @@ tables — no mixed-protocol tables.** Stage A survives only as the v1 record in
 - [x] State file created (this file)
 - [x] Harness: saturation sampling + live-config capture + warm-up v2 + curve.py golden test — **committed before any grid cell** (`c1921ce`, `4122315`, `9ffedfb`, `b6d38cc`)
 - [x] Grid launched detached — tmux session `grid`, started **2026-08-05T19:36:57Z** at head `b6d38cc`. ETA ~6.5 h (~02:00 UTC)
+- [x] Local drafts done while grid runs: BENCHMARKS.md prose (`1a4f704`), README first screen (`53d3b9f`), demo 3 built (`a06e104`)
 - [ ] Grid complete
 - [ ] Raw results rsynced and **committed before analysis**
 - [ ] Curve tables v2 + publishability stamps + computed G3 verdict
@@ -122,7 +123,21 @@ than re-deriving it.
    the ranked comparison an honest single-thread-vs-single-thread one, and it is
    now captured per cell rather than assumed from documentation.
 
-4. **Saturation VOID is opt-in per cell, not global.** `--require-saturation`
+4. **First grid cell confirms the opt-in saturation decision was right.**
+   `P-def d64-p1-c1` came in at 25,128 ops/s, spread 0.42%, publishable — with
+   `cpu_peak 56%`, i.e. deliberately unsaturated at one connection with no
+   pipelining. A global VOID-on-unsaturated rule would have discarded a valid
+   low-load point on the curve.
+
+5. **Demo 3's enforcement check caught a bug in itself on first run.** It derived
+   "windows touched" from the run's duration, so a 3 s flood with a 60 s window
+   computed one window — but the run straddled a real minute boundary, two buckets
+   each correctly allowed one request, and a working limiter was reported as
+   "DID NOT LIMIT". Fixed to derive the bound from wall-clock window indices, since
+   the bucket key is a function of the clock. Side effect: the failure path is now
+   proven to fire, empirically, rather than assumed to.
+
+6. **Saturation VOID is opt-in per cell, not global.** `--require-saturation`
    voids a cell whose server never reached core saturation. Applying it to the
    whole grid would void every low-load cell — and those cells are legitimate
    latency-probing points on the throughput-vs-p99 curve, not failures. It is
