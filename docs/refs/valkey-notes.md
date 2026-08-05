@@ -194,5 +194,150 @@
 
 ---
 
+## T1/T2 Command Additions: Behavioral Semantics (Phase 2)
+
+**Scope:** SCAN, AUTH, SETNX, GETDEL, GETEX, PERSIST, TYPE, RANDOMKEY, KEYS, DBSIZE, glob patterns, EXPIRE GT/LT precision
+
+### Glob Pattern Matching Syntax
+
+stringmatchlen (util.c:63–194) implements glob-style matching with exact syntax:
+- `*`: matches any sequence of characters (including empty)
+- `?`: matches exactly one character
+- `[abc]`: character class, matches any one char in the set
+- `[^abc]`: negated character class (first char after `[` must be `^`)
+- `\x`: escape sequence, allows literal `*`, `?`, `[`, `]`, `\` matching
+- Range notation: `[a-z]` matches char in range (order-independent; `[z-a]` equivalent after reversal)
+- Case-sensitivity: controlled by nocase flag; ranges and literals respect it
+- Recursive limit: nesting depth capped at 1000 to prevent DoS
+- **File:** util.c:63–194 (stringmatchlen_impl, stringmatchlen wrapper)
+
+### SCAN Cursor & Iteration Guarantees
+
+SCAN command iterates database keys with cursor-based resume:
+- Cursor 0 as input = start from beginning
+- Cursor 0 returned = iteration complete
+- COUNT option (default 10): hint only, **not a guarantee** on reply size
+- Max iterations per call: COUNT * 10 (adaptive for sparse hash tables; line 1271)
+- Loop continues while: cursor != 0 AND iterations < max AND sampled < COUNT
+- Small collections (intset, listpack, etc.): returned entirely in one call with cursor=0
+- **Guarantee:** A full iteration (cursor returns to 0) will retrieve all elements present for the entire duration; elements added/removed during iteration may or may not appear
+- **File:** db.c:1226–1314 (scanGenericCommandWithOptions), db.c:1267–1271 (COUNT as hint)
+
+### AUTH Command Behavior
+
+AUTH (acl.c:3455–3493) authenticates with username/password:
+- Signature: `AUTH [username] password` (2 or 3 args total)
+- **No password configured (USER_FLAG_NOPASS on default user):**
+  Error: `AUTH <password> called without any password configured for the default user. Are you sure your configuration is correct?`
+  Condition: checked at line 3470; if true, error returned before auth attempt
+- **Wrong password or invalid username:**
+  Error: `-WRONGPASS invalid username-password pair or user is disabled.` (line 1605)
+- **Correct credentials:**
+  Reply: `+OK`
+- **File:** acl.c:3455–3493 (authCommand), acl.c:1597–1609 (addAuthErrReply), acl.c:1645–1652 (ACLAuthenticateUser)
+
+### SETNX Return Shape
+
+SETNX (t_string.c:267–270) wraps setGenericCommand with ARGS_SET_NX:
+- **Key does NOT exist:** integer 1
+- **Key exists:** integer 0
+- Return type identical to `SET key value NX`
+- **File:** t_string.c:267–270
+
+### GETDEL Return Shape & Behavior
+
+GETDEL (t_string.c:395–406) returns value then deletes:
+- **Key exists, type string:** bulk string (same value as GET)
+- **Key missing:** nil (`$-1`)
+- **Wrong type (non-string):** error `WRONGTYPE ...` (no delete occurs)
+- Delete only occurs if getGenericCommand returns C_OK
+- On successful delete: key removed via dbSyncDelete, propagated as DEL command
+- **File:** t_string.c:395–406 (getdelCommand), t_string.c:302–314 (getGenericCommand)
+
+### GETEX Return Shape & Expiry Options
+
+GETEX (t_string.c:340–393) returns value with optional expiry modification:
+- **Key exists, type string:** bulk string
+- **Key missing:** nil
+- **Wrong type:** error WRONGTYPE
+- Options (mutually exclusive groups):
+  - EX/PX/EXAT/PXAT: set TTL
+  - PERSIST: remove expiry if present
+- Behavior: expiry set/removed applied after value buffered but before reply sent
+- **File:** t_string.c:340–393
+
+### PERSIST Return Shape
+
+PERSIST (expire.c:943–956) removes key expiry:
+- **Key exists + had expiry:** integer 1
+- **Key missing OR no prior expiry:** integer 0
+- **File:** expire.c:943–956
+
+### TYPE Return Shape
+
+TYPE (db.c:1417–1421) replies with key type as simple-string status:
+- **Key exists:** simple string: "string", "list", "set", "zset", "hash", "stream"
+- **Key missing:** simple string "none"
+- **File:** db.c:1417–1421 (typeCommand), db.c:1136–1149 (getObjectTypeName), db.c:1119–1120 (obj_type_name)
+
+### RANDOMKEY Return Shape
+
+RANDOMKEY (db.c:925–935) returns a random key:
+- **Key exists in DB:** bulk string of key name
+- **DB empty:** nil
+- **File:** db.c:925–935
+
+### KEYS Pattern Matching
+
+KEYS (db.c:937–973) returns all keys matching glob pattern:
+- **Return type:** array of bulk strings
+- **Pattern matching:** case-sensitive stringmatchlen call
+- **Special case:** pattern "*" matches all (optimized path)
+- **Expired key handling:** skipped (objectIsExpired check line 963; expired keys not returned)
+- **File:** db.c:937–973
+
+### DBSIZE Return Shape
+
+DBSIZE (db.c:1409–1411) returns total key count:
+- **Return type:** integer
+- **Value:** result of kvstoreSize(c->db->keys)
+- Includes all keys, both expired and active
+- **File:** db.c:1409–1411
+
+### EXPIRE Extension: NX/XX/GT/LT Flags (Recap + Precision)
+
+From T0 digest with GT/LT specifics:
+- **GT (greater-than):** only set if new expiry > current expiry
+  - Current = -1 (no expiry): GT always fails (returns 0)
+  - Current = 0: GT succeeds if new > 0
+- **LT (less-than):** only set if new expiry < current expiry
+  - Current = -1 (no expiry): LT always succeeds if new is finite
+  - Current = 0: LT fails if new >= 0
+- **File:** expire.c:763–880
+
+## Traps & Edge Cases (T1/T2 Additions)
+
+1. **SCAN COUNT is a hint:** Caller cannot assume exactly COUNT results. Sparse hash tables may return fewer; dense tables may return more. Default 10, adaptive loop multiplies by 10 for max iterations, sampled check stops at COUNT.
+
+2. **AUTH no-password error is distinct:** Different error message for "AUTH called but no password configured" vs. "wrong password." First blocks 2-arg form entirely; second allows 3-arg form but fails auth.
+
+3. **GETDEL & GETEX on wrong type:** Return WRONGTYPE error, NOT nil. Distinguish from missing-key (nil). Delete/expiry logic does NOT execute if type check fails.
+
+4. **TYPE on missing key:** Returns "none" (not nil, not error). This is a simple-string status reply, not a bulk string.
+
+5. **KEYS excludes expired keys:** Unlike DBSIZE, KEYS filters out expired keys even if active expiry hasn't fired. Expired keys are invisible to KEYS pattern scan.
+
+6. **SCAN cursor=0 does NOT mean 'all done':** Cursor 0 *returned* means iteration complete. Cursor 0 *input* means restart. Caller must distinguish input vs. output cursor.
+
+7. **PERSIST on key with no prior expiry:** Returns 0 (not error). Same as missing-key; caller cannot distinguish. Check EXISTS first if distinction needed.
+
+8. **RANDOMKEY blocking:** Iterates until a non-expired key found; on sparse/mostly-expired DB, may be slow. No timeout.
+
+9. **Glob character class notation:** Both `[^abc]` and `[!abc]` accepted; first char after `[` determines negation (checks `== '^'` per line 111). Note: `[!abc]` checks if first char is `^`, not if second is `!`.
+
+10. **Glob range order:** `[z-a]` treated same as `[a-z]` (order-corrected internally). Safe for any order input.
+
+---
+
 **Source Clone:** Valkey unstable, commit 0fc8cdafcba8, BSD-3-Clause licensed.  
 Behavioral reference only; see Valkey source for implementation details.
