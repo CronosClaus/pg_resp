@@ -35,6 +35,14 @@ python3 tests/lifecycle/panic_policy.py --psql $PGBIN/psql --pg-port 28818 \
 
 Omit `--password` if `pg_resp.password` is not set on the instance.
 
+**If psql reports `connection to server on socket "/tmp/.s.PGSQL.28818" failed:
+No such file or directory` while the server is demonstrably running**, the
+instance was started by `cargo pgrx start`/`cargo pgrx test`, which sets
+`unix_socket_directories=~/.pgrx` — a plain `pg_ctl start` uses
+postgresql.conf's default instead (`/tmp` here). Pass the directory explicitly:
+`--pg-host ~/.pgrx`. All three harnesses accept `--pg-host`. Same trap as
+`pgrx-patterns` §8.6.
+
 ## Measured results, Phase 3
 
 `lifecycle.py`: stop in **0.20s** (gate < 2s), 20/20 start-stop cycles clean, no

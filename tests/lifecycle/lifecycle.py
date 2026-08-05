@@ -112,6 +112,12 @@ def main():
     ap.add_argument("--pgbin", required=True)
     ap.add_argument("--datadir", required=True)
     ap.add_argument("--pg-port", type=int, required=True)
+    # pgrx-started instances use unix_socket_directories=~/.pgrx, while a plain
+    # `pg_ctl start` uses postgresql.conf's default (/tmp here). Passing the
+    # directory explicitly avoids "No such file or directory" on the socket —
+    # see the pgrx-patterns skill §8.6.
+    ap.add_argument("--pg-host", default=None,
+                    help="socket directory or host (e.g. ~/.pgrx for a pgrx-started instance)")
     ap.add_argument("--resp-port", type=int, default=6379)
     ap.add_argument("--password", default=None)
     ap.add_argument("--restarts", type=int, default=20)
@@ -185,7 +191,8 @@ def main():
             # documented in docs/ops.md. What matters here is that it recovers
             # without intervention.
             rc = subprocess.run(
-                [f"{pgbin}/psql", "-p", str(args.pg_port), "-d", "postgres",
+                [f"{pgbin}/psql", *(["-h", args.pg_host] if args.pg_host else []),
+                 "-p", str(args.pg_port), "-d", "postgres",
                  "-tAc", "SELECT 1"], capture_output=True, text=True)
             check("SQL is usable again afterwards",
                   rc.returncode == 0 and rc.stdout.strip() == "1",

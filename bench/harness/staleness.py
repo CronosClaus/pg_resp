@@ -69,9 +69,10 @@ class Psql:
     request is terminated by an echoed sentinel so reads are unambiguous.
     """
 
-    def __init__(self, psql, port, db="postgres"):
+    def __init__(self, psql, port, db="postgres", host=None):
         self.proc = subprocess.Popen(
-            [psql, "-p", str(port), "-d", db, "-tAq", "--no-psqlrc",
+            [psql, *(["-h", host] if host else []),
+             "-p", str(port), "-d", db, "-tAq", "--no-psqlrc",
              "-P", "pager=off", "-v", "ON_ERROR_STOP=0"],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT, text=True, bufsize=1,
@@ -249,6 +250,12 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--psql", required=True)
     ap.add_argument("--pg-port", type=int, required=True)
+    # pgrx-started instances use unix_socket_directories=~/.pgrx, while a plain
+    # `pg_ctl start` uses postgresql.conf's default (/tmp here). Passing the
+    # directory explicitly avoids "No such file or directory" on the socket —
+    # see the pgrx-patterns skill §8.6.
+    ap.add_argument("--pg-host", default=None,
+                    help="socket directory or host (e.g. ~/.pgrx for a pgrx-started instance)")
     ap.add_argument("--resp-host", default="127.0.0.1")
     ap.add_argument("--resp-port", type=int, default=6379)
     ap.add_argument("--resp-password", default=None)
@@ -256,7 +263,7 @@ def main():
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
 
-    pg = Psql(args.psql, args.pg_port)
+    pg = Psql(args.psql, args.pg_port, host=args.pg_host)
     poller = RespPoller(args.resp_host, args.resp_port, args.resp_password)
     poller.start()
     time.sleep(0.3)

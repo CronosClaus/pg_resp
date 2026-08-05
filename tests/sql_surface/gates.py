@@ -47,13 +47,14 @@ def check(label, actual, expected):
 
 
 class Pg:
-    def __init__(self, psql, port, db):
-        self.psql, self.port, self.db = psql, port, db
+    def __init__(self, psql, port, db, host=None):
+        self.psql, self.port, self.db, self.host = psql, port, db, host
 
     def run(self, sql, expect_error=False):
         """Run SQL, returning stripped stdout. Raises on unexpected error."""
         proc = subprocess.run(
-            [self.psql, "-p", str(self.port), "-d", self.db, "-tA", "-v",
+            [self.psql, *(["-h", self.host] if self.host else []),
+             "-p", str(self.port), "-d", self.db, "-tA", "-v",
              "ON_ERROR_STOP=1", "-c", sql],
             capture_output=True, text=True,
         )
@@ -353,13 +354,19 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--psql", required=True)
     ap.add_argument("--pg-port", type=int, required=True)
+    # pgrx-started instances use unix_socket_directories=~/.pgrx, while a plain
+    # `pg_ctl start` uses postgresql.conf's default (/tmp here). Passing the
+    # directory explicitly avoids "No such file or directory" on the socket —
+    # see the pgrx-patterns skill §8.6.
+    ap.add_argument("--pg-host", default=None,
+                    help="socket directory or host (e.g. ~/.pgrx for a pgrx-started instance)")
     ap.add_argument("--db", default="postgres")
     ap.add_argument("--resp-host", default="127.0.0.1")
     ap.add_argument("--resp-port", type=int, default=6379)
     ap.add_argument("--resp-password", default=None)
     args = ap.parse_args()
 
-    pg = Pg(args.psql, args.pg_port, args.db)
+    pg = Pg(args.psql, args.pg_port, args.db, args.pg_host)
     gate_g1_rollback_safety(pg)
     gate_g4_stats_consistency(pg, args.resp_host, args.resp_port, args.resp_password)
     semantics_assertions(pg)
