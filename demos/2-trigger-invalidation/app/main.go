@@ -40,9 +40,18 @@ func init() {
 		invalidation = "trigger"
 	}
 
-	// Connect to Postgres
+	// Connect to Postgres with retries
 	dsn := "host=pg_resp user=demo_user password=demo_pass dbname=postgres port=5432 sslmode=disable"
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	var db *gorm.DB
+	var err error
+	for i := 0; i < 30; i++ {
+		db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
+		if err == nil {
+			break
+		}
+		log.Printf("Waiting for database... (%d/30): %v", i+1, err)
+		time.Sleep(1 * time.Second)
+	}
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
@@ -188,10 +197,11 @@ func handleUpdateProduct(w http.ResponseWriter, r *http.Request, id int) {
 		return
 	}
 
-	// Invalidate cache only in ARM A (app mode). In ARM B (trigger mode),
-	// the trigger handles cache invalidation automatically.
+	// ARM A only: the application remembers to invalidate here. ARM B has NO
+	// invalidation code anywhere in this file — the trigger on the products
+	// table does it, which is the whole claim the demo exists to test.
+	cacheKey := fmt.Sprintf("product:%d", id)
 	if app.mode == "app" {
-		cacheKey := fmt.Sprintf("product:%d", id)
 		app.cache.Del(ctx, cacheKey)
 	}
 
@@ -200,8 +210,7 @@ func handleUpdateProduct(w http.ResponseWriter, r *http.Request, id int) {
 	fmt.Fprintf(w, `{"status":"updated"}`)
 }
 
-// handleBulkReprice: represents a code path that updates the database but
-// does not integrate with the cache-invalidation logic.
+// handleBulkReprice: represents a code path that updates the database.
 //
 // In ARM A (app mode): this is a DELIBERATELY BUGGY path. The primary
 // handleUpdateProduct() path calls cache.Del(), but this bulk-reprice endpoint
@@ -210,12 +219,16 @@ func handleUpdateProduct(w http.ResponseWriter, r *http.Request, id int) {
 // error-prone: the responsibility to invalidate is spread across the codebase,
 // and the bulk-reprice operation was coded without calling cache.Del().
 //
-// In ARM B (trigger mode): this path still does NOT call cache.Del(), but it
-// doesn't matter. The trigger on the products table fires automatically on
-// every UPDATE, evicting the cache regardless of which application code path
-// performed the update. This demonstrates that trigger-based invalidation is
-// robust: the schema guarantees correctness, not the application code.
+// In ARM B (trigger mode): this path does not invalidate either — and neither
+// does any other path, because ARM B's application contains no cache
+// invalidation code at all. The AFTER UPDATE trigger created in init-arm-b.sql
+// evicts the key at commit. That is the difference being measured: ARM A's
+// correctness depends on every author of every write path remembering; ARM B's
+// is a property of the schema.
 func handleBulkReprice(w http.ResponseWriter, r *http.Request, id int) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	var req struct {
 		DiscountPercent float64 `json:"discount_percent"`
 	}
@@ -231,11 +244,15 @@ func handleBulkReprice(w http.ResponseWriter, r *http.Request, id int) {
 		return
 	}
 
-	// NOTE: This endpoint intentionally does not call cache.Del().
-	// In ARM A, this is the bug that causes stale serves until TTL expires.
-	// In ARM B, the trigger automatically evicts the cache on UPDATE.
+	// DELIBERATE BUG (ARM A): no cache invalidation here. This is the realistic
+	// failure — a second write path, added later, whose author did not know the
+	// cache existed. In ARM B nothing is needed here at all, because the trigger
+	// covers every path including this one.
+	_ = ctx
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintf(w, `{"status":"bulk-repriced"}`)
 }
+
+

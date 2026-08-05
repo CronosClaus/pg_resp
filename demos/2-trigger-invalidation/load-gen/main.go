@@ -30,6 +30,7 @@ type Stats struct {
 	WritesPrimary     int64
 	WritesBulk        int64
 	StaleServes       int64
+	CensoredSamples   int
 	MaxStaleDuration  time.Duration
 	StaleDurations    []time.Duration
 	mu                sync.Mutex
@@ -41,6 +42,12 @@ type LoadGen struct {
 	dbConn *gorm.DB
 	stats  *Stats
 }
+
+// How long to keep watching a single stale key before giving up. Samples that
+// reach it are reported as right-censored rather than as measurements.
+const staleObservationCap = 10 * time.Second
+
+var staleWg sync.WaitGroup
 
 var (
 	lg *LoadGen
@@ -180,13 +187,26 @@ func readLoop(ctx context.Context, id int) {
 			atomic.AddInt64(&lg.stats.StaleServes, 1)
 
 			// Record staleness duration (estimate: poll-based)
-			duration := measureStaleDuration(productID, cachedPrice)
-			lg.stats.mu.Lock()
-			lg.stats.allStaleDurations = append(lg.stats.allStaleDurations, duration)
-			if duration > lg.stats.MaxStaleDuration {
-				lg.stats.MaxStaleDuration = duration
-			}
-			lg.stats.mu.Unlock()
+			// Measure how long the staleness lasts in a SEPARATE goroutine.
+			// Doing it inline blocked this reader for up to the cap on every
+			// detection, which crushed the read count (an early run managed 54
+			// reads against another arm's 25,530) and made the stale-serve
+			// PERCENTAGES incomparable between arms, since the denominator
+			// collapsed precisely when staleness was worst.
+			staleWg.Add(1)
+			go func(pid int, seen string) {
+				defer staleWg.Done()
+				duration, censored := measureStaleDuration(pid, seen)
+				lg.stats.mu.Lock()
+				lg.stats.allStaleDurations = append(lg.stats.allStaleDurations, duration)
+				if censored {
+					lg.stats.CensoredSamples++
+				}
+				if duration > lg.stats.MaxStaleDuration {
+					lg.stats.MaxStaleDuration = duration
+				}
+				lg.stats.mu.Unlock()
+			}(productID, cachedPrice)
 		}
 
 		time.Sleep(5 * time.Millisecond)
@@ -243,24 +263,31 @@ func readFromDB(productID int) string {
 
 // measureStaleDuration: polls the app until it matches the DB truth, measuring how long.
 // This is a rough measure; the actual window may be shorter due to polling granularity.
-func measureStaleDuration(productID int, staledPrice string) time.Duration {
+// Returns (duration, censored). `censored` means the cap was reached while the
+// value was STILL stale — the true duration is unknown and longer. Reporting the
+// cap as if it were a measurement is how "p50 = p99 = max = exactly 10s" ends up
+// in a results table looking like data.
+func measureStaleDuration(productID int, staledPrice string) (time.Duration, bool) {
 	start := time.Now()
 	for {
-		if time.Since(start) > 10*time.Second {
-			// Gave up waiting; assume max duration
-			return 10 * time.Second
+		if time.Since(start) > staleObservationCap {
+			return staleObservationCap, true
 		}
 		cached := readFromApp(productID)
 		truth := readFromDB(productID)
 		if cached == truth && cached != staledPrice {
 			// Convergence detected
-			return time.Since(start)
+			return time.Since(start), false
 		}
 		time.Sleep(1 * time.Millisecond)
 	}
 }
 
 func printResults() {
+	// Let outstanding staleness probes finish, or their samples are lost and the
+	// worst cases — the slowest to converge — are exactly the ones dropped.
+	staleWg.Wait()
+
 	fmt.Println("\n=== Load Generation Results ===\n")
 
 	totalReads := atomic.LoadInt64(&lg.stats.TotalReads)
@@ -276,6 +303,14 @@ func printResults() {
 	fmt.Printf("Stale serves:      %d (%.2f%%)\n", staleServes,
 		float64(staleServes)*100/float64(totalReads))
 	fmt.Printf("Max staleness:     %v\n", lg.stats.MaxStaleDuration)
+	if lg.stats.CensoredSamples > 0 {
+		fmt.Printf("  RIGHT-CENSORED:  %d of %d staleness samples were still stale when\n",
+			lg.stats.CensoredSamples, len(lg.stats.allStaleDurations))
+		fmt.Printf("                   observation stopped at %v. Their true duration is\n",
+			staleObservationCap)
+		fmt.Printf("                   UNKNOWN and longer — the percentiles below are\n")
+		fmt.Printf("                   floors, not measurements.\n")
+	}
 
 	if len(lg.stats.allStaleDurations) > 0 {
 		durations := lg.stats.allStaleDurations

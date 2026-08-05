@@ -1,9 +1,8 @@
 # Demo app 2: trigger-based cache invalidation
-# Run with: INVALIDATION=app docker compose up --build --abort-on-container-exit
-#        or INVALIDATION=trigger docker compose up --build --abort-on-container-exit
-# (default is trigger)
-
-version: "3.8"
+# Run with (see README — do NOT use --abort-on-container-exit, the one-shot
+# `setup` container exits by design and would tear the stack down early):
+#   INVALIDATION=trigger docker compose up -d --build pg_resp setup app
+#   INVALIDATION=trigger docker compose run --rm load-gen
 
 services:
   pg_resp:
@@ -38,11 +37,6 @@ services:
         condition: service_healthy
     environment:
       INVALIDATION: ${INVALIDATION:-trigger}
-    volumes:
-      - ./init-arm-a.sql:/app/init-arm-a.sql:ro
-      - ./init-arm-b.sql:/app/init-arm-b.sql:ro
-      - ./setup.sh:/app/setup.sh:ro
-    command: ["bash", "/app/setup.sh"]
 
   app:
     build:

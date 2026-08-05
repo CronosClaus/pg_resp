@@ -3,3 +3,8 @@ FROM postgres:18
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+COPY init-arm-a.sql init-arm-b.sql setup.sh ./
+
+RUN chmod +x setup.sh
+
+CMD ["bash", "/app/setup.sh"]

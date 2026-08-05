@@ -22,7 +22,12 @@ for i in {1..30}; do
     sleep 1
 done
 
-# Run the init script
-psql -h pg_resp -U postgres -d postgres -f "$INIT_SCRIPT"
+# Extra wait for bgworker to fully initialize
+sleep 2
+
+# Run the init script (password-less connection within the container)
+# Continue on error to allow CREATE TRIGGER to fail gracefully if resp.evict is not available
+export PGPASSWORD=postgres
+psql -h pg_resp -U postgres -d postgres -v ON_ERROR_STOP=0 -f "$INIT_SCRIPT"
 
 echo "Database initialized"
