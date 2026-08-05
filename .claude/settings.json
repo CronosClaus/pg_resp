@@ -12,7 +12,10 @@
       "Bash(initdb:*)",
       "Bash(redis-cli:*)",
       "Bash(memtier_benchmark:*)",
-      "Bash(bash scripts/clone-refs.sh)"
+      "Bash(bash scripts/clone-refs.sh)",
+      "Bash(ssh:*)",
+      "Bash(scp:*)",
+      "Bash(rsync:*)"
     ],
     "deny": [
       "Read(./.env)"
