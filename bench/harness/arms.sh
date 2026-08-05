@@ -339,11 +339,20 @@ exclusive() {
     # pg_resp via postgresql.conf.sample, so a K-pg instance that simply omitted
     # the setting would have pg_resp loaded while its arguments showed nothing —
     # a guard that passes for the wrong reason is worse than no guard.
-    local spl
-    spl="$(docker exec "$PG_CONTAINER" psql -U "$PG_USER" -d "$PG_DB" -p "$PG_PORT" \
-             -h 127.0.0.1 -tAc 'SHOW shared_preload_libraries' 2>/dev/null | tr -d '[:space:]' || true)"
-    if [[ -z "$spl" ]]; then
-      spl="(could not query)"
+    # An EMPTY result and a FAILED query are different things, and conflating
+    # them broke this check on its first real use: for K-pg, empty is exactly
+    # the desired answer, so treating "" as "could not query" made the guard
+    # fail on success. Take psql's exit status as the query verdict and the
+    # output as the value, never the output as both.
+    local spl spl_ok=1
+    if spl="$(docker exec "$PG_CONTAINER" psql -U "$PG_USER" -d "$PG_DB" -p "$PG_PORT" \
+                -h 127.0.0.1 -tAc 'SHOW shared_preload_libraries' 2>/dev/null)"; then
+      spl_ok=0
+    fi
+    spl="$(tr -d '[:space:]' <<< "$spl")"
+    if (( spl_ok != 0 )); then
+      echo "FAIL $keep: could not query shared_preload_libraries; refusing to measure" >&2
+      return 1
     fi
     case "$keep" in
       P-*)
@@ -356,13 +365,9 @@ exclusive() {
           echo "FAIL K-pg: server reports shared_preload_libraries='$spl' — pg_resp's" \
                "bgworker would run through K-pg's entire measurement" >&2
           return 1
-        fi
-        if [[ "$spl" == "(could not query)" ]]; then
-          echo "FAIL K-pg: could not confirm pg_resp is unloaded; refusing to measure" >&2
-          return 1
         fi ;;
     esac
-    echo "OK   server reports shared_preload_libraries='$spl' — correct for $keep"
+    echo "OK   server reports shared_preload_libraries='${spl:-(empty)}' — correct for $keep"
   fi
   echo "OK   only $keep is live"
 }

@@ -746,7 +746,20 @@ def main() -> int:
     json_path = out_dir / f"{day}-{cell.arm}-{cell.workload_id}.json"
     json_path.write_text(json.dumps(asdict(result), indent=2) + "\n")
 
-    tag = "" if publishable else "  **[dev-only]**"
+    # Say WHY a cell is unpublishable, not just that it is. This used to print a
+    # blanket "[dev-only]", which on the dedicated box was actively misleading:
+    # a smoke cell there is unpublishable because it is a single run with no
+    # spread to check (§12), not because it came from WSL2. A reader who saw
+    # "dev-only" against a dedicated-box number would draw the wrong conclusion
+    # about where it was measured.
+    if publishable:
+        tag = ""
+    elif args.env_class != "dedicated":
+        tag = "  **[dev-only: not the official box]**"
+    elif spread_pct is None:
+        tag = "  **[unpublishable: single run, no spread]**"
+    else:
+        tag = f"  **[unpublishable: spread {spread_pct:.2f}% > {args.spread_threshold:.0f}%]**"
     print(
         f"{cell.arm:6s} {cell.workload_id:18s} "
         f"{result.ops_sec:12,.2f} ops/s  p50 {result.p50:7.3f}  "

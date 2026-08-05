@@ -11,5 +11,15 @@
 #      (progress report D.8).
 #
 # Client major version is matched to the server image (postgres:18).
+#
+# PGUSER defaults to postgres because inside the container the process runs as
+# root, so libpq would otherwise default to the role "root", which does not
+# exist — and sweep.py does not pass -U. Caught by A-smoke: both P-* cells
+# VOIDed on `FATAL: role "root" does not exist` while the arm itself was
+# serving correctly. Exactly the class of failure the smoke stage exists to
+# surface, and it surfaced as a refusal to measure rather than as a silent
+# unauthenticated run.
 set -euo pipefail
-exec docker run --rm --network host -i postgres:18 psql "$@"
+exec docker run --rm --network host -i \
+  -e PGUSER="${PGUSER:-postgres}" \
+  postgres:18 psql "$@"
