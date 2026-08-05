@@ -36,7 +36,11 @@ async function main() {
   check("incr", await client.incr("ctr"), 1);
   check("incr again", await client.incr("ctr"), 2);
   await client.set("ek", "v");
-  check("expire", await client.expire("ek", 10), true);
+  // In RESP2 mode, EXPIRE's reply is the raw integer (:1/:0) — node-redis
+  // does not coerce it to a boolean the way it does under RESP3. Found by
+  // actually running this: comparing against `true` always failed even
+  // though the server's reply was correct.
+  check("expire", await client.expire("ek", 10), 1);
   check("ttl", await client.ttl("ek"), 10);
 
   const failures = results.filter(([, ok]) => !ok);
@@ -45,7 +49,12 @@ async function main() {
   }
   console.log(`\n${results.length - failures.length}/${results.length} passed`);
 
-  await client.quit();
+  // client.quit() sends the wire QUIT command (T1 tier, bible §3.4 — not
+  // implemented yet, correctly, since this matrix only tests T0). Found by
+  // actually running this: it crashed with "unknown command 'QUIT'" instead
+  // of a clean exit. destroy() just closes the socket, no wire command,
+  // matching how the go-redis/jedis scripts tear down (plain socket close).
+  client.destroy();
   process.exit(failures.length ? 1 : 0);
 }
 
