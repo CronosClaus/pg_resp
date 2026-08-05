@@ -50,6 +50,7 @@ CONNS=(1 8 64)
 
 ATTEMPTED=0
 VOIDED=0
+UNPUB=0   # completed with rc=0 but not publishable (spread gate)
 
 port_for() {
   case "$1" in
@@ -100,17 +101,30 @@ PY
 }
 
 # Hard stop: a systemically broken protocol should not consume the night.
+#
+# UNUSABLE = VOIDED + UNPUB, not VOIDED alone.
+#
+# A cell that exceeds the 8% spread gate exits 0 and is merely stamped
+# unpublishable, so counting only VOIDs left a hole: a grid in which EVERY cell
+# blew the spread gate would have run all 108 cells to completion with a void
+# rate of 0% and produced nothing usable. The first 12 cells of the stopped run
+# were 17% unpublishable against a 0% void rate, which is how the hole was found.
+# A cell that cannot be published is a cell that cost 3 minutes and bought
+# nothing, whichever exit code it used to say so.
 check_stop() {
   (( ATTEMPTED >= 10 )) || return 0
-  local pct=$(( VOIDED * 100 / ATTEMPTED ))
+  local unusable=$(( VOIDED + UNPUB ))
+  local pct=$(( unusable * 100 / ATTEMPTED ))
   (( pct > 20 )) || return 0
   {
     echo "GRID STOPPED $(date -u +%FT%TZ)"
-    echo "voided $VOIDED of $ATTEMPTED attempted cells = ${pct}% > 20% threshold"
+    echo "unusable $unusable of $ATTEMPTED attempted = ${pct}% > 20% threshold"
+    echo "  voided (rc != 0)        : $VOIDED"
+    echo "  unpublishable (spread)  : $UNPUB"
     echo "Box left UP for diagnosis. Do NOT improvise a protocol change."
     echo "Diagnose in reports/phase4-night2.md; progress log: $PROGRESS"
   } | tee "$STOPFILE"
-  echo "### GRID STOPPED — VOID RATE ${pct}%"
+  echo "### GRID STOPPED — UNUSABLE RATE ${pct}% (void $VOIDED + unpublishable $UNPUB)"
   exit 3
 }
 
@@ -156,6 +170,15 @@ run_cell() { # arm data_size pipeline conns outdir [extra sweep args...]
   local rc=$?
   if [[ $rc -eq 0 ]]; then
     record "$arm" "$wl" ok "$dir"
+    # Publishability is decided by the harness, so read it back from the artifact
+    # rather than inferring it from the exit code.
+    local pubflag
+    pubflag="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('publishable'))" \
+                "$(artifact_for "$dir" "$arm" "$wl")" 2>/dev/null || echo True)"
+    if [[ "$pubflag" != "True" ]]; then
+      UNPUB=$((UNPUB+1))
+      echo "NOTE $arm $wl completed but is UNPUBLISHABLE (counts toward the hard stop)"
+    fi
   else
     VOIDED=$((VOIDED+1))
     record "$arm" "$wl" "void-rc$rc" "$dir"
@@ -179,7 +202,7 @@ for arm in "${ARMS_ALL[@]}"; do
 done
 
 echo
-echo "### MAIN GRID DONE $(date -u +%FT%TZ) — attempted=$ATTEMPTED voided=$VOIDED"
+echo "### MAIN GRID DONE $(date -u +%FT%TZ) — attempted=$ATTEMPTED voided=$VOIDED unpublishable=$UNPUB"
 
 # ---- Anomaly protocol (ENV.md §21.3): the 64 B peak cell, saturation ENFORCED.
 echo "### ANOMALY SET — 64 B peak, --require-saturation enforced"
@@ -203,5 +226,5 @@ unset REDIS_EXTRA_ARGS
 
 bench/harness/arms.sh down all >/dev/null 2>&1 || true
 echo
-echo "### GRID COMPLETE $(date -u +%FT%TZ) — attempted=$ATTEMPTED voided=$VOIDED"
+echo "### GRID COMPLETE $(date -u +%FT%TZ) — attempted=$ATTEMPTED voided=$VOIDED unpublishable=$UNPUB"
 echo "### cells on disk: $(ls "$GRID"/*.json 2>/dev/null | wc -l) grid, $(ls "$ANOM"/*.json 2>/dev/null | wc -l) anomaly, $(ls "$SUPP"/*.json 2>/dev/null | wc -l) supplementary"

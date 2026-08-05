@@ -594,6 +594,33 @@ fn server_loop(
                 loop {
                     match mio_listener.accept() {
                         Ok((mut stream, _addr)) => {
+                            // TCP_NODELAY on every accepted connection, as Redis
+                            // and Valkey both do.
+                            //
+                            // Without it, Nagle holds a small trailing write until
+                            // the peer ACKs the previous segment, and the peer's
+                            // delayed-ACK timer can sit on that ACK for ~40ms —
+                            // the classic interlock. A request/reply cache is
+                            // exactly the traffic shape that suffers: small
+                            // replies, one request in flight, nothing else to
+                            // piggyback an ACK on.
+                            //
+                            // Honest scope note: this is a hygiene fix, NOT the
+                            // cause of the ~41ms 16KB stall found on the bench box.
+                            // That stall reproduces identically on Redis, Valkey
+                            // and Redka — all of which already set this option —
+                            // so it lives on the client path, not here
+                            // (bench/results/ENV.md §22). Fixed anyway, because the
+                            // option belongs on a cache's sockets regardless of
+                            // which bug did or did not motivate it.
+                            //
+                            // Failure is logged and ignored rather than fatal: a
+                            // connection that cannot be tuned is still a usable
+                            // connection, and refusing to serve it would turn a
+                            // performance option into an availability risk.
+                            if let Err(e) = stream.set_nodelay(true) {
+                                log!("pg_resp: set_nodelay failed on new connection: {e}");
+                            }
                             let token = Token(next_token);
                             next_token += 1;
                             if poll
