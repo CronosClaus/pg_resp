@@ -9,7 +9,9 @@ Note on version numbers: the **extension** version (`default_version` in
 `pg_resp.control`, and the `sql/pg_resp--X.Y.Z.sql` filename) is not the same
 surface as the **release** version below. `0.1.0-rc` is a release candidate of
 extension version `0.1.0` — see the comment in `pg_resp.control` for why those
-are deliberately decoupled.
+are deliberately decoupled. **They converge at the `v0.1.0` tag**, where the
+crate version drops its `-rc` and both surfaces read `0.1.0`; the extension
+version does not move, so no upgrade script is needed for that transition.
 
 ## [Unreleased]
 

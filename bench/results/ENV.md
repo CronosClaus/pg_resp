@@ -609,6 +609,16 @@ only — moving results **in pg_resp's favour**, which is the direction bible
 §0.5 requires the most suspicion of. Same guarantee, no confound. `arms.sh
 lockdown` verifies the end state the requirement actually cares about.
 
+**Status: this substitution was reviewed and APPROVED**, on the grounds that it
+protects the unfavourable direction. The instruction named a mechanism
+(`-p 127.0.0.1:PORT:PORT`); the requirement behind it was "nothing off
+loopback". Those came apart here because `--network host` removes the port
+mapping the mechanism operates on, and honouring the mechanism literally would
+have bought the same isolation at the cost of a measurement bias pointing at our
+own product. The rationale is recorded here rather than in a commit message
+because a future reader re-deriving the topology will look in this file and
+should not have to rediscover why the obvious flag is absent.
+
 ### `ss -tlnp` — baseline, at bootstrap, before any arm was started
 
 ```
@@ -645,8 +655,20 @@ each-at-own-saturation ratio, which is exactly what the kickoff's D14 amendment
 requires be published for *both* arms rather than at a single point. It is small
 enough to review by eye and it is the stage that can fail informatively.
 
-**Stage B — the full §10 matrix**, all six arms, overnight, plus the W6
-bytes-per-1M-entries metric.
+**Stage B — the full approved grid, and it is not negotiable down.** All six
+arms across all **18** workloads of bible §10: value sizes **64 B / 1 KB /
+16 KB** x pipeline **1 / 16** x connections **1 / 8 / 64** = 18 workloads,
+**108 cells**, each 3 x 60 s with the 8% spread gate. At the ~4.1 min per cell
+Stage A measured, that is ~7.5 h of run time — a genuine overnight job. Plus the
+W6 bytes-per-1M-entries metric and the supplementary robustness cell of §21.2.
+
+**Why the full grid rather than a subset:** the R-def/R-opt/V-opt cells are the
+honesty cells. bible §0.5 requires publishing the numbers where Redis and Valkey
+win, and §10's pre-registered shape expects them to win raw throughput by 2-6x.
+Those cells must therefore exist *before* anything publishes, or the document
+would consist of the comparisons that favour pg_resp plus a promise about the
+rest. Stage A deliberately covers only P-opt and K-pg because it is the
+decision curve; it is not a preview of what gets published.
 
 **A-smoke precedes both** (box requirement 1): one ~10 s throwaway cell per arm,
 all six. Its purpose is not measurement — the containerised-arm path has never
@@ -840,3 +862,93 @@ all six arms and all three payload sizes, with the hit rate published per cell.
 If it survives that, it gets investigated further before it is believed — and if
 it survives investigation it gets published like any other number, including the
 part where it contradicts our own pre-registration.
+
+### 21.3 The 64 B anomaly protocol — pre-registered before Stage B runs
+
+Approved protocol for turning §21.2's flagged anomaly into either a retracted
+artefact or a publishable result. Written down **before** the measurement, which
+is the only ordering in which a presentation rule constrains anything.
+
+**1. Full protocol on both arms.** Every cell 3 x 60 s, spread-gated at 8% (§12).
+A single run does not count regardless of how large the difference looks.
+
+**2. Server CPU saturation evidence is mandatory, per arm, committed.**
+1-second-interval `docker stats` / `pidstat` samples captured for the duration of
+each compared cell and committed beside the raw output. **A comparison in which
+one server is not core-saturated is VOID.** This is the check that decides
+whether §21.2 is a real result or an artefact: if pg_resp is saturating its two
+physical cores while Redis sits at 60% of one, the two arms were not both being
+asked for everything they had, and the ratio measures the harness rather than the
+servers.
+
+**3. Live-config verification per arm, before its cells, into the raw header.**
+Not "the config file says so" — what the running process reports:
+
+```
+R-opt / V-opt:  CONFIG GET save
+                CONFIG GET appendonly
+                CONFIG GET io-threads
+                CONFIG GET maxmemory-policy
+P-def / P-opt:  SHOW pg_resp.max_memory ; SHOW pg_resp.eviction
+                SHOW shared_preload_libraries
+```
+
+A config file that was mounted read-only but never parsed, or an image whose
+defaults differ from the file's assumptions, is invisible to any check that reads
+the file instead of the server. The smoke stage already produced one instance of
+exactly this class of error (§19 item 2).
+
+**4. Approved supplementary cell: 64 B with Redis `io-threads=4`.** Redis 8's
+default is a single I/O thread, so the primary comparison is single-threaded
+against single-threaded, which is the honest like-for-like and stays the ranked
+arm. The `io-threads=4` cell is labelled a **robustness check, not a ranked
+arm**: it answers "does the result survive giving the incumbent its I/O
+parallelism?" without silently redefining the arm that bible §10 pre-registered.
+
+**5. Presentation rule, pre-registered.** If the result survives 1-4, it is
+published **scoped**: at 64 B, over loopback, single-threaded command execution,
+Redis I/O threading off, and with pg_resp paying AUTH that the incumbents do not.
+It goes in the **same table** as the cells Redis wins, with the investigation
+linked from it. It is **never** a headline, never the README's first screen, and
+never phrased as "faster than Redis" without those five qualifiers attached.
+
+Pre-registration guards against motivated reasoning; it does not license
+suppressing a verified result. If the number survives the protocol, hiding it
+would be the same category of dishonesty as inflating it — bible §0.5 says
+publish every number, and that rule does not have an exception for numbers that
+embarrass our own pre-registration.
+
+### 21.4 The transport ceiling, as arithmetic
+
+§21.1's ceiling stated as bytes rather than as an impression, so a reader can
+check it:
+
+```
+observed at 1 KB / pipeline 16 / 32 conns:   ~410,000 ops/s
+memtier reported throughput:                 ~220,000 KB/s  =  ~215 MB/s
+
+per-operation payload at a ~45% hit rate, ratio 1:10 SET:GET:
+  SETs   1/11 of ops x 1024 B value            =  ~93 B/op
+  GET hits   (10/11) x 0.45 x 1024 B           = ~419 B/op
+  GET misses (10/11) x 0.55 x 5 B              =   ~2.5 B/op
+  keys + RESP framing, both directions         =  ~50 B/op
+                                                 ----------
+                                                 ~565 B/op
+
+410,000 ops/s x ~565 B  =  ~232 MB/s   (memtier's own figure: ~215 MB/s)
+```
+
+The two agree within ~8%, which is what should be expected given that the hit
+rate moves a few points between runs and the framing estimate is approximate. So
+the ~410k ceiling is a **byte-rate** ceiling of the loopback + syscall + copy
+path at roughly 215-230 MB/s, not an ops-rate ceiling of any server. It is
+independent of which server is behind the socket, which is precisely why five
+different implementations landed within 4% of it (§19).
+
+**Reporting rule, binding on `docs/BENCHMARKS.md` and the README:** at or above
+this ceiling, a near-tie between arms is reported as **"transport-bound"** and
+never as parity, equivalence, or "matching Redis". The correct statement is that
+the measurement cannot distinguish the servers at that payload size, which is a
+fact about the bench and not a property of pg_resp. Payload sizes below the
+ceiling (64 B) and the K-pg comparison (an order of magnitude below it) are where
+the arms are actually distinguishable.

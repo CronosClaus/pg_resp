@@ -89,6 +89,23 @@ Reproduce: `bench/results/ENV.md` §20 (official box) and §6 (first verificatio
 Where Redis and Valkey win, with numbers. Per bible §0.5, every arm's figures
 are published including the ones that lose.
 
+### Reading rule: transport-bound cells are not ties
+
+At 1 KB and pipeline 16 the benchmark saturates the **loopback + syscall + copy
+path** at roughly 215-230 MB/s — about 410,000 ops/s at this workload's average
+payload — regardless of which server is behind the socket. The arithmetic is in
+[`ENV.md`](../bench/results/ENV.md) §21.4, and the evidence is in §21.1: five
+different implementations (pg_resp, Redis, Valkey) landed within 4% of each
+other, and doubling the client's cores moves the figure by 1.7%.
+
+**Therefore, binding on this document and on the README:** where arms land within
+noise of that ceiling, the cell is reported as **transport-bound**, never as
+parity, equivalence, or "matching Redis". The honest statement is that *the
+measurement cannot distinguish the servers at that payload size* — a fact about
+the bench, not a property of pg_resp. Cells below the ceiling (64 B) and the K-pg
+comparison (an order of magnitude below it) are where the arms are genuinely
+distinguishable, and those are the cells that carry an interpretation.
+
 ## Structural comparison vs K-pg — PENDING (dedicated box)
 
 Per D14 as amended: the matched-p99 headline, the **full throughput-vs-p99 curve

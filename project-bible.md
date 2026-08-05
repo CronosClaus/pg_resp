@@ -256,8 +256,8 @@ pg_resp/
 │   ├── resp-proto/               # parser/serializer; no PG deps; fuzz targets in fuzz/
 │   ├── resp-store/               # store, TTL wheel, CLOCK-LRU; no PG deps; proptest here
 │   └── pg_resp/                  # the pgrx extension: bgworker, loop, GUCs, SQL fns
-├── sql/                          # pg_resp--0.1.0.sql (+ future upgrade scripts)
-├── pg_resp.control
+│       ├── pg_resp.control       # AMENDED Phase 4: crate-local, not repo-root
+│       └── sql/                  # pg_resp--0.1.0.sql (+ future upgrade scripts)
 ├── tests/
 │   ├── compat/                   # dockerized client matrix (py/node/go/java/cli)
 │   ├── differential/             # random-stream oracle vs Valkey
@@ -280,6 +280,8 @@ pg_resp/
 ```
 
 Crate split is deliberate: `resp-proto` and `resp-store` compile and test **without a Postgres**, which makes the fuzzing, property tests, and most iteration loops seconds-fast and cheap in tokens (no `cargo pgrx test` cycle for logic work).
+
+**Amendment (Phase 4): `sql/` and `pg_resp.control` are crate-local, not repo-root.** This file originally drew them at the top level, mirroring a C contrib module's layout. pgrx puts both beside the extension crate, and that is where `cargo pgrx schema`, `cargo pgrx install` and `cargo pgrx package` look and write — a repo-root `sql/` would either be ignored by the tooling or need a build step to copy into place, and the packaged artifact would then be assembled from a different directory than the one under review. The pgrx-native layout is also what published pgrx extensions ship (ParadeDB, pgvectorscale), so it is what a reviewer familiar with the ecosystem expects to find. The versioned-script and upgrade-script *conventions* from `.claude/skills/pg-conventions` are unchanged; only the directory moves.
 
 ---
 
