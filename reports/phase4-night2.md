@@ -7,7 +7,7 @@ detached on the box and this file says what was decided, what is done, and where
 to resume. Updated at every stage boundary.
 
 **Box:** `bench@188.34.158.72` (CCX33, 8 vCPU). Creation/destruction human-only.
-**Repo head at start:** `6656815`.
+**Repo head at start:** `6656815`. **Grid launched at:** `b6d38cc`.
 
 ---
 
@@ -87,8 +87,8 @@ tables — no mixed-protocol tables.** Stage A survives only as the v1 record in
 
 - [x] Orphan check: no tmux sessions, no containers, 204 GB free
 - [x] State file created (this file)
-- [ ] Harness: saturation sampling + live-config capture + warm-up v2 + curve.py golden test — **committed before any grid cell**
-- [ ] Grid launched detached
+- [x] Harness: saturation sampling + live-config capture + warm-up v2 + curve.py golden test — **committed before any grid cell** (`c1921ce`, `4122315`, `9ffedfb`, `b6d38cc`)
+- [x] Grid launched detached — tmux session `grid`, started **2026-08-05T19:36:57Z** at head `b6d38cc`. ETA ~6.5 h (~02:00 UTC)
 - [ ] Grid complete
 - [ ] Raw results rsynced and **committed before analysis**
 - [ ] Curve tables v2 + publishability stamps + computed G3 verdict
@@ -101,7 +101,28 @@ tables — no mixed-protocol tables.** Stage A survives only as the v1 record in
 Appended as decisions are made, so a fresh session inherits the reasoning rather
 than re-deriving it.
 
-1. **Saturation VOID is opt-in per cell, not global.** `--require-saturation`
+1. **Pre-flight caught two launch-blockers that would each have cost the night.**
+   (a) The box's `git pull` was aborting: result files rsynced off the box are now
+   tracked in the repo but were still untracked there, so the box was silently
+   running a `sweep.py` with no `--warmup-keys` and would have failed all 108
+   cells on `unrecognized arguments`. All 48 blocking files were verified
+   byte-identical against `origin/master` before any deletion. (b) `CpuSampler`
+   named an attribute `self._stop`, shadowing `threading.Thread._stop()`, which
+   `join()` calls — so a cell would run to completion and then crash with
+   `TypeError: 'Event' object is not callable` at the moment it recorded results.
+   A 10 s pre-flight cell found both.
+
+2. **The 90%-of-one-core saturation threshold is now measured, not assumed.**
+   Pre-flight: Redis at 64 B / p16 / 8 conns sampled **median 102.2%, peak
+   103.1%** of one logical CPU. A single-threaded server saturates at ~100%, so
+   the threshold is right and a 400% (four-CPU cpuset) expectation would have
+   voided every honest cell.
+
+3. **Live `CONFIG GET` confirms Redis 8 ships `io-threads 1`.** That is what makes
+   the ranked comparison an honest single-thread-vs-single-thread one, and it is
+   now captured per cell rather than assumed from documentation.
+
+4. **Saturation VOID is opt-in per cell, not global.** `--require-saturation`
    voids a cell whose server never reached core saturation. Applying it to the
    whole grid would void every low-load cell — and those cells are legitimate
    latency-probing points on the throughput-vs-p99 curve, not failures. It is
