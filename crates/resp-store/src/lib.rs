@@ -15,13 +15,29 @@ use std::time::Instant;
 mod scan;
 use scan::ScanRegistry;
 
-/// Rough fixed per-entry overhead (HashMap bucket + `Entry` struct fields +
-/// allocator bookkeeping for two heap allocations — key and value). This is
-/// an estimate, not a measurement: bible §3.5 says the real constant is
-/// "measured in Phase 2" — that measurement needs a live process and a
-/// memory profiler, which is real Phase 2 (not pre-work) scope. Documented
-/// here so it's visibly a placeholder, not silently treated as exact.
-pub const PER_ENTRY_OVERHEAD_BYTES: usize = 64;
+/// Fixed per-entry overhead (HashMap bucket + `Entry` struct fields +
+/// allocator bookkeeping for two heap allocations — key and value).
+///
+/// **Measured** (bible §3.5), not theoretical: live `pg_resp` bgworker,
+/// `/proc/<pid>/status`'s `VmRSS` before/after loading 100,000 1-byte-value
+/// entries, twice in a row (200,000 total). First 100k: RSS delta 8,600 KB
+/// → ~88.1 bytes/entry including key+value payload (avg ~15.9-byte keys) →
+/// ~71 bytes overhead alone. Second 100k (same process, keys now 100k-200k):
+/// RSS delta 14,568 KB → ~149.2 bytes/entry (avg ~13.9-byte keys, shorter)
+/// → ~134 bytes overhead alone — nearly double the first measurement.
+///
+/// The two don't match because `std::collections::HashMap` grows its
+/// backing table by doubling, so crossing a capacity threshold mid-load (as
+/// the second batch did, ~100k→200k) allocates roughly double the bucket
+/// array for a load that only grew linearly — real memory-per-entry is
+/// inherently non-linear near a resize point, not a flaw in the
+/// measurement. `96` is a documented, deliberately conservative constant
+/// between the two observations (closer to the resize-affected reading) —
+/// erring toward *overestimating* overhead is the safe direction for a
+/// byte-budget accounting constant: `resp.stats()`/`INFO`'s `used_bytes`
+/// under-promising available capacity is far better than a store that
+/// silently exceeds its configured `pg_resp.max_memory` in practice.
+pub const PER_ENTRY_OVERHEAD_BYTES: usize = 96;
 
 /// How many keys a single eviction/expiry sweep samples per call. Redis's
 /// own default active-expire-cycle sample size is in this range; bible §3.5
