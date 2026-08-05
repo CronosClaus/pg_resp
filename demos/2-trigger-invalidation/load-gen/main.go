@@ -193,11 +193,11 @@ func readLoop(ctx context.Context, id int) {
 	}
 }
 
+var httpClient = &http.Client{Timeout: 5 * time.Second}
+
 func updateViaAPI(productID int, newPrice string) {
 	body, _ := json.Marshal(map[string]string{"price": newPrice})
-	resp, err := http.Client{
-		Timeout: 5 * time.Second,
-	}.Post(
+	resp, err := httpClient.Post(
 		fmt.Sprintf("%s/products/%d", lg.appURL, productID),
 		"application/json",
 		bytes.NewReader(body),
@@ -210,9 +210,7 @@ func updateViaAPI(productID int, newPrice string) {
 
 func bulkRepriceViaAPI(productID int, discountPercent float64) {
 	body, _ := json.Marshal(map[string]float64{"discount_percent": discountPercent})
-	resp, err := http.Client{
-		Timeout: 5 * time.Second,
-	}.Post(
+	resp, err := httpClient.Post(
 		fmt.Sprintf("%s/products/%d/bulk-reprice", lg.appURL, productID),
 		"application/json",
 		bytes.NewReader(body),
@@ -224,9 +222,7 @@ func bulkRepriceViaAPI(productID int, discountPercent float64) {
 }
 
 func readFromApp(productID int) string {
-	resp, err := http.Client{
-		Timeout: 5 * time.Second,
-	}.Get(fmt.Sprintf("%s/products/%d", lg.appURL, productID))
+	resp, err := httpClient.Get(fmt.Sprintf("%s/products/%d", lg.appURL, productID))
 	if err != nil {
 		return ""
 	}
@@ -283,9 +279,11 @@ func printResults() {
 
 	if len(lg.stats.allStaleDurations) > 0 {
 		durations := lg.stats.allStaleDurations
-		p50, p99 := percentiles(durations, 0.5, 0.99)
-		fmt.Printf("Staleness p50:     %v\n", p50)
-		fmt.Printf("Staleness p99:     %v\n", p99)
+		pcts := percentiles(durations, 0.5, 0.99)
+		if len(pcts) >= 2 {
+			fmt.Printf("Staleness p50:     %v\n", pcts[0])
+			fmt.Printf("Staleness p99:     %v\n", pcts[1])
+		}
 	}
 
 	fmt.Println()

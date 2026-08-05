@@ -16,6 +16,9 @@ use std::time::{Duration, Instant, SystemTime};
 
 mod dispatch;
 mod glob;
+#[cfg(any(test, feature = "pg_test"))]
+#[path = "privilege_tests.rs"]
+mod privilege_tests;
 mod sql;
 
 ::pgrx::pg_module_magic!(name, version);
@@ -784,5 +787,29 @@ fn reconcile_interest(poll: &Poll, token: Token, conn: &mut Conn) {
         .is_ok()
     {
         conn.want_write = needs_write;
+    }
+}
+
+/// pgrx's test harness looks for `crate::pg_test` (the `#[pg_test]` macro
+/// expands to reference it by that exact path, so it must live at the crate
+/// root, not beside the tests it configures).
+#[cfg(test)]
+pub mod pg_test {
+    pub fn setup(_options: Vec<&str>) {}
+
+    /// pg_resp refuses to load unless it is preloaded — `_PG_init` checks
+    /// `process_shared_preload_libraries_in_progress` — so the test instance has
+    /// to preload it, or every `#[pg_test]` would fail at `CREATE EXTENSION`
+    /// with "pg_resp must be loaded via shared_preload_libraries".
+    pub fn postgresql_conf_options() -> Vec<&'static str> {
+        vec![
+            "shared_preload_libraries = 'pg_resp'",
+            // A port of its own. The default 6379 is very likely already held
+            // by a developer's own running instance, and the test worker would
+            // then log "bind failed: Address already in use" and exit — leaving
+            // the cache unreachable for the whole test run, with the cause
+            // buried in the server log rather than in the test output.
+            "pg_resp.port = 6399",
+        ]
     }
 }
