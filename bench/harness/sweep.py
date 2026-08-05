@@ -242,7 +242,7 @@ def password_from_pg(args) -> str | None:
 
 
 def build_memtier_argv(args, cell: Cell) -> list[str]:
-    argv = [
+    argv = taskset_prefix(args) + [
         str(args.memtier),
         f"--host={args.host}",
         f"--port={args.port}",
@@ -266,6 +266,64 @@ def build_memtier_argv(args, cell: Cell) -> list[str]:
     return argv
 
 
+def taskset_prefix(args) -> list[str]:
+    """Pin memtier to the client cores (ENV.md §9). Absent = unpinned, and the
+    raw header says so, because an unpinned client on a shared box is a
+    different experiment from a pinned one."""
+    if args.client_cpus:
+        return ["taskset", "-c", args.client_cpus]
+    return []
+
+
+ARM_PORTS = {"P-def": 6379, "P-opt": 6379, "R-def": 6380, "R-opt": 6381,
+             "V-opt": 6382, "K-pg": 6383}
+
+
+def check_exclusive(args, cell: Cell) -> str:
+    """Fail if any arm other than the one under test is still answering.
+
+    Co-resident arms contend for cores, page cache and memory bandwidth, and an
+    idle Redis still holds its whole `maxmemory` allocation — so a run with a
+    second arm up measures a different machine than a run without one, with no
+    visible sign in the output. ENV.md §8.
+    """
+    live = []
+    for arm, port in ARM_PORTS.items():
+        if port == ARM_PORTS[cell.arm]:
+            continue  # the arm under test (P-def/P-opt share a port)
+        try:
+            with socket.create_connection((args.host, port), timeout=1):
+                live.append(f"{arm}:{port} (answering)")
+        except OSError:
+            pass
+
+    # Reachability alone is not enough. Under WSL2 a containerised arm sits in
+    # the Docker VM's network namespace, so it is unreachable from here while
+    # still running on the same physical CPUs and holding its whole `maxmemory`
+    # allocation. The socket probe above cannot see that; docker can.
+    ps = run(["docker", "ps", "--format", "{{.Names}}"])
+    if ps.returncode == 0:
+        running = set(ps.stdout.split())
+        for arm in ARM_PORTS:
+            if arm == cell.arm or ARM_PORTS[arm] == ARM_PORTS[cell.arm]:
+                continue
+            cname = "pg_resp_bench_" + arm.replace("-", "_")
+            if cname in running:
+                live.append(f"{arm} (container {cname} running)")
+        for extra in ("kpg_redka", "kpg_pg"):
+            if extra in running and cell.arm != "K-pg":
+                live.append(f"K-pg support container {extra} running")
+
+    if live:
+        raise Void(
+            "other arms are still live: " + ", ".join(live) + ". Stop them "
+            "first (bench/harness/arms.sh exclusive " + cell.arm + ") — a "
+            "co-resident arm changes the machine under test without changing "
+            "the output."
+        )
+    return "exclusivity: no other arm port answers"
+
+
 def build_warmup_argv(args, cell: Cell) -> list[str]:
     """SET-only pass over the same keyspace, to populate before measuring.
 
@@ -277,7 +335,7 @@ def build_warmup_argv(args, cell: Cell) -> list[str]:
     Equal warm-up per arm is what makes a cell a comparison rather than a
     coincidence.
     """
-    argv = [
+    argv = taskset_prefix(args) + [
         str(args.memtier),
         f"--host={args.host}",
         f"--port={args.port}",
@@ -363,6 +421,18 @@ def main() -> int:
     ap.add_argument("--psql", default="psql")
     ap.add_argument("--pg-port", type=int, default=28818)
     ap.add_argument("--pg-host", default="~/.pgrx")
+    ap.add_argument(
+        "--require-exclusive",
+        action="store_true",
+        help="refuse to run if any OTHER arm's port answers (ENV.md §8). "
+        "Mandatory for every comparison run; omit only for harness debugging.",
+    )
+    ap.add_argument(
+        "--client-cpus",
+        default=None,
+        help="taskset CPU list for memtier, e.g. 6-11 (ENV.md §9). Recorded in "
+        "the raw header.",
+    )
     ap.add_argument("--server-note", default="", help="version/image digest of the arm under test")
     ap.add_argument("--out-dir", default=str(RESULTS))
     ap.add_argument("--dry-run", action="store_true", help="print the argv and exit")
@@ -392,6 +462,13 @@ def main() -> int:
             verdict.append(
                 f"SHOW pg_resp.password -> {'set' if args.password else 'unset'} "
                 "(read from the live instance, not assumed)"
+            )
+        if args.require_exclusive and not args.dry_run:
+            verdict.append(check_exclusive(args, cell))
+        elif not args.dry_run:
+            verdict.append(
+                "exclusivity: NOT CHECKED (--require-exclusive omitted) — "
+                "NOT valid for a cross-arm comparison"
             )
         if not args.dry_run:
             verdict.append(verify_server_answers(args, cell))
@@ -466,6 +543,7 @@ def main() -> int:
         "SET:GET, key-pattern G:G, key-maximum 1000000 (bible §10)",
         f"started (UTC)  : {started}",
         f"server note    : {args.server_note or '(none given)'}",
+        f"client pinning : {('taskset -c ' + args.client_cpus) if args.client_cpus else 'UNPINNED (see ENV.md §9)'}",
         f"env class      : {args.env_class} — {ENV_CLASSES[args.env_class]}",
         f"publishable    : {'YES' if publishable else 'NO'}",
         "",

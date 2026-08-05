@@ -181,6 +181,32 @@ down_arm() {
   fi
 }
 
+# ENV.md §8: exactly one arm live per measured run.
+exclusive() {
+  local keep="$1" a
+  for a in R-def R-opt V-opt K-pg; do
+    [[ "$a" == "$keep" ]] && continue
+    docker rm -f "$(container_for "$a")" >/dev/null 2>&1 || true
+  done
+  # K-pg drags a PostgreSQL and a network along with it.
+  if [[ "$keep" != K-pg ]]; then
+    docker rm -f kpg_redka kpg_pg >/dev/null 2>&1 || true
+  fi
+  echo "stopped every arm except $keep"
+  # Then prove it, rather than assuming the stops worked.
+  local port live=()
+  for a in P-def R-def R-opt V-opt K-pg; do
+    port="$(port_for "$a")"
+    [[ "$port" == "$(port_for "$keep")" ]] && continue
+    if timeout 1 bash -c "</dev/tcp/127.0.0.1/$port" 2>/dev/null; then live+=("$a:$port"); fi
+  done
+  if (( ${#live[@]} )); then
+    echo "FAIL still answering: ${live[*]}" >&2
+    return 1
+  fi
+  echo "OK   only $keep is live"
+}
+
 digests() {
   for img in "$REDIS_IMAGE" "$VALKEY_IMAGE"; do
     docker image inspect --format '{{.RepoTags}} {{index .RepoDigests 0}}' "$img" 2>/dev/null \
@@ -195,6 +221,7 @@ case "$cmd" in
   up)          up_arm "$1" ;;
   verify)      verify_arm "$1" ;;
   down)        down_arm "${1:-all}" ;;
+  exclusive)   exclusive "$1" ;;
   build-redka) build_redka ;;
   digests)     digests ;;
   *) sed -n '1,40p' "${BASH_SOURCE[0]}"; exit 1 ;;

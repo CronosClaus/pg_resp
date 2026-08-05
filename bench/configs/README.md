@@ -21,9 +21,18 @@ redis:8.2-alpine          redis@sha256:a7859ed111db3c1f5404a973a4747505d559fb5ca
 valkey/valkey:8.1-alpine  valkey/valkey@sha256:a038175878d66b9d274fbf8be73c0305e93798b83917647f167e18cef3c71eec
 ```
 
-Both report `malloc=jemalloc-5.3.0`, which matters for the RAM-per-entry metric:
-all three of Redis, Valkey and pg_resp are measured against jemalloc, so the
-allocator is not a hidden variable between them.
+Both report `malloc=jemalloc-5.3.0`. **pg_resp does not** — it has no
+`jemallocator` dependency, so its Rust heap uses the default system allocator,
+i.e. **glibc malloc**. The allocator is therefore *not* matched across arms, and
+that asymmetry is a real caveat on the RAM-per-entry metric rather than a
+detail: jemalloc is generally better than glibc malloc at exactly this
+allocation pattern (many small, long-lived, similarly-sized blocks), so the
+comparison is expected to be **unfavourable to pg_resp** on bytes-per-entry, and
+part of any gap is the allocator rather than the design.
+
+An earlier revision of this file claimed all three arms used jemalloc. That was
+wrong, and it was wrong in the flattering direction — recorded here rather than
+silently corrected, and carried as a stated caveat beside the W6 measurement.
 
 ## D8 note, stated plainly because it will be asked
 

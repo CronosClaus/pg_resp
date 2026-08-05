@@ -197,3 +197,179 @@ amendment appended to that report.
 The three voided NOAUTH runs are **not** committed — 820 MB of a single
 repeated error line has no evidentiary value that this file's §4 does not
 already carry.
+
+---
+
+# Phase 4 benchmark methodology
+
+Added during Phase 4, per the kickoff amendments. Everything above this line is
+the Phase 2/3 record and is unchanged.
+
+## 6. K-pg verified PG-backed via table growth
+
+**This is a G3-validity requirement, not a formality.** Redka picks its driver
+from the DSN's scheme (`cmd/redka/main.go`: `strings.HasPrefix(path,
+"postgres://")`) and falls back to **in-memory SQLite** — `config.Path =
+cmp.Or(flag.Arg(0), os.Getenv("REDKA_DB_URL"), sqliteMemoryURI)` — whenever the
+positional argument is missing or empty. A typo in the DSN would therefore
+produce a *silently SQLite-backed* arm that still answers every RESP command
+correctly, and the structural-win claim would be measured against the wrong
+architecture entirely. Redka's own docs put SQLite in-memory at ~104k GET /
+~36k SET against ~25k / ~11k for PostgreSQL, so the mistake would be worth
+roughly 4x in Redka's favour and would look like a *harder* comparison rather
+than an invalid one.
+
+So the arm is verified by watching PostgreSQL, not by trusting redka's log:
+
+```
+tables redka created (public schema):  rhash rkey rlist rset rstring rzset
+rkey / rstring row counts BEFORE:      0 | 0
+SET burst:                             10,000 keys, errors: 0, replies: 10000
+rkey / rstring row counts AFTER:       10000 | 10000
+value read back out of PostgreSQL:     kpgprobe:4242 | val4242
+pg_stat_user_tables (rstring):         n_tup_ins=10000  idx_scan=10001
+```
+
+**K-pg verified PG-backed via table growth.** The last line is also the clearest
+single piece of evidence for the positioning claim in bible §2: 10,000 RESP SETs
+produced 10,000 row inserts and 10,001 index scans inside PostgreSQL. That is
+the SQL-per-operation architecture, measured rather than asserted.
+
+Reproduce:
+
+```bash
+docker network create kpgnet
+docker run -d --name kpg_pg --network kpgnet \
+  -e POSTGRES_PASSWORD=redka -e POSTGRES_USER=redka -e POSTGRES_DB=redka \
+  postgres:18 -c synchronous_commit=off -c shared_buffers=1GB \
+  -c effective_cache_size=3GB -c max_wal_size=4GB \
+  -c checkpoint_timeout=30min -c full_page_writes=off
+docker run -d --name kpg_redka --network kpgnet --entrypoint redka \
+  pg_resp-bench-redka:pinned -h 0.0.0.0 -p 6379 \
+  "postgres://redka:redka@kpg_pg:5432/redka?sslmode=disable"
+docker exec kpg_pg psql -U redka -d redka -tAc \
+  "SELECT (SELECT count(*) FROM rkey), (SELECT count(*) FROM rstring);"
+```
+
+The redka image is built from redka's **own** Dockerfile at the pinned clone
+commit `d3c353f02470` (`docs/refs/PINS.md`), so the binary is upstream's build,
+not ours.
+
+## 7. K-pg's PostgreSQL is deliberately configured in the competitor's favour
+
+The point of the K-pg arm is to compare *architectures*, so it must not be
+possible to dismiss the result as "you ran Redka on an untuned database". Its
+PostgreSQL therefore gets settings chosen to make Redka look as good as
+possible:
+
+| setting | value | why it favours Redka |
+|---|---|---|
+| `synchronous_commit` | `off` | removes WAL fsync from Redka's commit path — its single largest per-op cost, and the one pg_resp does not pay at all because it never writes WAL |
+| `shared_buffers` | `1GB` | the whole Redka working set stays in PostgreSQL's cache; no arm should be disk-bound |
+| `effective_cache_size` | `3GB` | encourages index scans over seq scans for Redka's key lookups |
+| `max_wal_size` / `checkpoint_timeout` | `4GB` / `30min` | pushes checkpoints out of the measurement window |
+| `full_page_writes` | `off` | further reduces WAL volume |
+
+**`synchronous_commit = off` deserves being called out**, because it means the
+K-pg arm is *not durable* during the benchmark. That is deliberate and it is the
+generous choice: it removes Redka's durability cost from the comparison, leaving
+only the architectural cost of translating each operation into SQL. If pg_resp
+still wins by ≥5x against a Redka that is not even paying for durability, the
+structural claim is stronger, not weaker. Stated in the README too, since a
+reader who spots it independently should find we said it first.
+
+## 8. One arm live at a time
+
+Every measured run has exactly one arm running; all other arms are stopped
+first. On a single box the arms otherwise contend for the same cores, page cache
+and memory bandwidth, and a co-resident idle Redis still holds its `maxmemory`
+allocation. `bench/harness/arms.sh exclusive <arm>` enforces this by stopping
+every other arm container and then failing if any other arm port still answers,
+and `sweep.py --require-exclusive` refuses to run otherwise.
+
+## 9. Core pinning plan (`taskset`)
+
+Topology of the development box: Intel i7-10750H, 6 physical cores / 12 logical,
+SMT enabled, siblings **adjacent** (`/sys/.../thread_siblings_list` gives `0-1`,
+`2-3`, … `10-11`), so logical CPU pairs share a physical core.
+
+| side | logical CPUs | physical cores |
+|---|---|---|
+| server (PostgreSQL + pg_resp, or the incumbent container) | `0-5` | 0, 1, 2 |
+| benchmark client (`memtier_benchmark`) | `6-11` | 3, 4, 5 |
+
+The split is on *physical* core boundaries, so client and server never share a
+core's execution resources — a naive "first half / second half" split of an
+interleaved sibling map would put both on the same physical cores and quietly
+serialise them. pg_resp executes commands on one thread (D4), so three physical
+cores is ample for the server side.
+
+Applied as `taskset -c 0-5` on the server process and `taskset -c 6-11` on
+memtier (`sweep.py --server-cpus / --client-cpus`, recorded in every raw
+header). The dedicated box's own topology must be re-derived the same way and
+recorded here before its runs — do not copy this table to a different machine.
+
+**Same-machine client placement remains a stated limitation** (§1), pinning
+reduces but does not remove it. If the dedicated box permits a separate client
+host, that is strictly better and pinning becomes unnecessary.
+
+## 10. Allocator per arm — not matched, and it is not in pg_resp's favour
+
+| arm | allocator |
+|---|---|
+| R-def / R-opt | jemalloc 5.3.0 (reported by `redis-server --version`) |
+| V-opt | jemalloc 5.3.0 (reported by `valkey-server --version`) |
+| K-pg | glibc malloc (Go runtime + PostgreSQL); its cache is in PG tables, not a heap |
+| **P-def / P-opt** | **glibc malloc** — pg_resp has no `jemallocator` dependency, so Rust's default system allocator is used |
+
+This matters most for bible §10's **bytes of RAM per 1M cached 1 KB entries**
+(W6). jemalloc is generally stronger than glibc malloc for this exact pattern —
+many small, long-lived, similarly-sized allocations — so any per-entry memory
+gap between pg_resp and the incumbents includes an allocator component working
+*against* pg_resp. The measurement is still reported as measured; the caveat is
+reported beside it rather than used to explain the number away. Switching
+pg_resp to jemalloc is a v0.2 question (and would also make bible §13's
+"jemalloc stats in resp.stats()" mitigation literally true, which it currently
+is not).
+
+## 11. Correction: the "hit rate is worth ~2.4x" claim is withdrawn as a magnitude
+
+During Phase 4 harness validation I reported that hit rate was a ~2.4x
+confound, from two runs of the same cell:
+
+| # | pre-state | test | hit | ops/s | p99 |
+|---|---|---|---|---|---|
+| 1 | cold store, no warm-up | 15s x1 | 1.05% | 198,509 | 4.86 ms |
+| 2 | 45s SET-only warm-up immediately prior | 15s x1 | 100.00% | 82,637 | 27.26 ms |
+| 3 | already warm, no warm-up run | 5s x1 | 100.00% | 213,549 | 3.89 ms |
+
+Runs 2 and 3 have the **same 100% hit rate** and differ by **2.6x**, which
+means the 198,509 → 82,637 gap cannot be attributed to hit rate: those two runs
+differed in more than one variable (pre-state, and a 45-second pure-SET burst
+finishing microseconds before run 2 started, which leaves CLOCK-LRU under heavy
+eviction pressure). **The direction of the effect is still sound** — a GET miss
+returns 5 bytes where a hit returns 1 KB, so an under-warmed arm does less work
+per operation — but **the magnitude is not established and must not be quoted.**
+It gets isolated properly on the dedicated box, one variable at a time, under
+the full 3x60s protocol.
+
+Two things this does not change, both of which stand on their own:
+
+- **Warm-up must be equal across arms and recorded.** Whatever the magnitude,
+  comparing a warm arm against a cold one compares different work.
+- **Hit rate must be reported in every cell**, so a reader can check parity
+  instead of trusting that it held.
+
+And one thing it adds:
+
+- **Sub-20-second runs on this box are not stable enough to compare at all.**
+  Three runs of one cell spanned 82k–213k ops/s. ENV.md §4 already put
+  run-to-run variance at ~10% for 15s runs at a fixed configuration; these
+  short validation runs were worse than that, and the difference is that they
+  varied pre-state as well. This is an argument for bible §10's 3x60s protocol
+  and against reading anything into a quick run — including a quick run that
+  agrees with expectations.
+
+Recorded here rather than quietly dropped, because a plausible-sounding
+magnitude that nobody re-derived is exactly the failure iron rule 7 exists to
+prevent, and this one was mine.
