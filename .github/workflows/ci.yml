@@ -142,6 +142,26 @@ jobs:
       - name: Install cargo-pgrx ${{ env.PGRX_VERSION }}
         run: cargo install cargo-pgrx --locked --version "${PGRX_VERSION}"
 
+      # `cargo pgrx test` installs the extension into the pg_config's own
+      # sharedir/pkglibdir before running. On the developer machine that is a
+      # pgrx-managed prefix under ~/.pgrx and owned by the user; here it is the
+      # distro's root-owned /usr/{share,lib}/postgresql/<N>, so the install
+      # cannot write and the whole step fails with exit 1 (not 101 — it is a
+      # tooling failure, not a test panic). Handing those two directories to the
+      # runner user is the minimal fix; the runner is ephemeral and single-use.
+      #
+      # Evidence this is environmental and not a code problem: the same commit
+      # passes `cargo pgrx test pg16` 76/76 locally against a pgrx-managed
+      # PostgreSQL 16.14 install.
+      - name: Give the runner write access to the PostgreSQL install
+        run: |
+          set -euo pipefail
+          PGSHARE="$("$PG_CONFIG" --sharedir)"
+          PGLIB="$("$PG_CONFIG" --pkglibdir)"
+          echo "sharedir=$PGSHARE pkglibdir=$PGLIB"
+          sudo chown -R "$(id -u):$(id -g)" "$PGSHARE" "$PGLIB"
+          ls -ld "$PGSHARE" "$PGSHARE/extension" "$PGLIB"
+
       # Points pgrx at the distro PostgreSQL instead of letting it download and
       # compile one from source, which would add ~15 min per matrix leg.
       - name: cargo pgrx init (system PostgreSQL ${{ matrix.pg }})
@@ -162,9 +182,37 @@ jobs:
       # The slow loop. Includes the three #[pg_test]s that pin D12's privilege
       # semantics, which need a live bgworker — pgrx supplies
       # shared_preload_libraries via the crate's postgresql_conf_options() hook.
+      # The tail is re-emitted as ::error:: annotations because annotations are
+      # readable from the public REST API without a token, while step logs are
+      # not (they 403). Without this, diagnosing a red matrix leg means asking a
+      # human to copy the log out of the browser — a slow loop for something the
+      # workflow can just publish itself.
       - name: cargo pgrx test pg${{ matrix.pg }}
         working-directory: crates/pg_resp
-        run: cargo pgrx test pg${{ matrix.pg }}
+        run: |
+          set -o pipefail
+          if cargo pgrx test pg${{ matrix.pg }} 2>&1 | tee /tmp/pgrx-test-pg${{ matrix.pg }}.log; then
+            exit 0
+          fi
+          echo "::group::annotated failure tail (pg${{ matrix.pg }})"
+          {
+            grep -nE 'error(\[|:)|panicked|Permission denied|FATAL|could not|No such file' \
+              /tmp/pgrx-test-pg${{ matrix.pg }}.log | head -12
+            echo '--- last 15 lines ---'
+            tail -15 /tmp/pgrx-test-pg${{ matrix.pg }}.log
+          } | while IFS= read -r line; do
+            printf '::error title=pg%s::%s\n' '${{ matrix.pg }}' "${line//$'\r'/}"
+          done
+          echo "::endgroup::"
+          exit 1
+
+      - name: Upload pgrx test log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pgrx-test-log-pg${{ matrix.pg }}
+          path: /tmp/pgrx-test-pg${{ matrix.pg }}.log
+          if-no-files-found: ignore
 
       - name: Upload PostgreSQL logs on failure
         if: failure()
