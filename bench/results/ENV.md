@@ -305,9 +305,21 @@ serialise them. pg_resp executes commands on one thread (D4), so three physical
 cores is ample for the server side.
 
 Applied as `taskset -c 0-5` on the server process and `taskset -c 6-11` on
-memtier (`sweep.py --server-cpus / --client-cpus`, recorded in every raw
-header). The dedicated box's own topology must be re-derived the same way and
-recorded here before its runs — do not copy this table to a different machine.
+memtier (`sweep.py --client-cpus`, recorded in every raw header).
+
+**Correction:** an earlier revision of this paragraph wrote
+`sweep.py --server-cpus / --client-cpus`. There is no `--server-cpus` option and
+there never was — `sweep.py` launches only the client, so it can only confine the
+client. Server-side confinement is applied where the server is actually started:
+`taskset` on the postmaster in native mode, and `arms.sh`'s `SERVER_CPUS`
+(`docker --cpuset-cpus`) in container mode. The distinction matters because a
+reader following this file to reproduce a run would have passed a flag that does
+not exist, got an argparse error, and reasonably concluded the harness was
+broken.
+
+The dedicated box's own topology must be re-derived the same way and recorded
+here before its runs — do not copy this table to a different machine (see §16
+for the box's actual map).
 
 **Same-machine client placement remains a stated limitation** (§1), pinning
 reduces but does not remove it. If the dedicated box permits a separate client
