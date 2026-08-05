@@ -327,3 +327,48 @@ chance to be rescued.** Mixing rescued and unrescued cells in one table would ha
 been a protocol inconsistency invisible in the output.
 
 ETA ~02:55Z. Monitor re-armed, now also watching for RE-RUNNING events.
+
+
+---
+
+# RESTART 3 — 2026-08-05T22:32:30Z, head `0c7300d`, 72 cells
+
+**16 KB is parked entirely.** Its pipeline-16 cells fail too (4,609 ops/s, p99
+pinned at 41.2 ms, server at 1.8% CPU) and controlled probes do not reproduce
+that, so the cause is unknown. Two hypotheses died to measurement — the reply-size
+one (16 KB replies are fine: 46,589 ops/s GET-only on a warm store) and the
+payload-at-p16 one (SET-only 58,278 ops/s). Parked under "gate fails twice for the
+same cause", full record in ENV.md §25.
+
+Grid is now **64 B and 1 KB, pipelines 1 and 16, connections 1/8/64 — 72 cells**,
+ETA ~02:30Z. `§10 asks for three payload sizes; this run delivers two`, and that
+gap is stated in ENV.md §25 rather than left for a reader to notice.
+
+## Restart history for this night, and what each one bought
+
+| # | at | reason | cost |
+|---|---|---|---|
+| 1 | 19:36 | original 108-cell grid | — |
+| 2 | 21:16 | after D1/D2/D3: NODELAY fixed, hard stop widened, 16 KB p1 excluded (90 cells) | 12 cells superseded |
+| 3 | 21:36 | `--rerun-on-spread` found to be a no-op; implemented, restarted for homogeneity (90 cells) | ~7 cells |
+| 4 | 22:32 | 16 KB parked entirely; 72 cells | ~13 cells |
+
+Each restart traded cells for a run that means one thing. The alternative in every
+case was a table whose rows had different protocols behind them, which is invisible
+in the output and therefore worse than the lost time.
+
+## Corrections I made to my own conclusions tonight
+
+Recorded because the pattern matters more than any one of them: **three times** a
+persuasive diagnosis died to a control experiment.
+
+1. "pg_resp lacks TCP_NODELAY, hence the 41 ms" — refuted by Redis collapsing
+   identically *with* the option set.
+2. "The 16 KB reply exceeds the server's send buffer" — refuted by 16 KB GET-only
+   at 46,589 ops/s on a warm store.
+3. "16 KB at pipeline 16 is clean" — my own earlier claim, refuted when I noticed
+   the probe ran against an **empty** store, so every GET missed and returned 5
+   bytes and no 16 KB reply was ever sent.
+
+All three were plausible, and all three would have shipped as fact without the
+control.
