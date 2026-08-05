@@ -22,7 +22,8 @@ amended plan.
 
 | gate | result |
 |---|---|
-| R1 fast loop | **PASS** — 119/119 (45 resp-proto + 52 resp-store + 22 resp-client), up from 80. Plus 73/73 `pg_resp` lib tests |
+| R1 fast loop | **PASS** — 119/119 (45 resp-proto + 52 resp-store + 22 resp-client), up from 80 |
+| slow loop (`cargo pgrx test pg18`) | **PASS** — 76/76 (73 unit + 3 `#[pg_test]`) |
 | R2 compat matrix | _pending_ |
 | R3 differential oracle | _pending_ |
 | R4 lifecycle (Phase 0 S1 table) | **PASS** — stop in 0.20s (gate < 2s), 20/20 restart cycles, no orphans, port released, SIGKILL recovery 0.6s. Now a committed harness (`tests/lifecycle/lifecycle.py`) instead of a by-hand ritual |
@@ -89,6 +90,29 @@ both subids, which made this straightforward. All three shapes verified:
 plpgsql `EXCEPTION` block — the motivating case — discarding its own write while
 the enclosing transaction's write survives.
 
+### D12 is pinned by `#[pg_test]`, as the amendment asked
+
+The amendment asked for a `#[pg_test]`, and my kickoff plan had assumed one was
+impossible here because pgrx's test harness cannot reach a live bgworker. That
+assumption was half wrong and worth correcting: the *privilege* questions never
+need the cache (they are catalog operations, and a queued cache write is
+discarded when the test transaction rolls back), and pgrx's
+`postgresql_conf_options()` hook can give the test instance
+`shared_preload_libraries` anyway, so the worker does run. Three `#[pg_test]`s
+now cover the default posture, the `CREATE TRIGGER` refusal, and the
+fire-time-vs-creation-time answer.
+
+The cache-dependent gates (G1, G4) stay in `tests/sql_surface/gates.py`, which
+is the honest split: those need real round trips through a real worker.
+
+Four pgrx traps were discovered getting that to run, all recorded in the module
+docs: the module must be named `tests` (the `#[pg_schema]` name becomes a SQL
+schema and pgrx invokes `"tests"."<fn>"()` with the name hard-coded), it must
+*not* be named `pg_tests` (Postgres reserves the `pg_` prefix), `crate::pg_test`
+must sit at the crate root, and the test instance needs its own
+`pg_resp.port` or its worker silently loses a bind race with the developer's own
+instance and exits.
+
 ## Bugs found and fixed
 
 **1. Partial writes — a live bug, not a future risk (ADD1).** The server called
@@ -128,7 +152,22 @@ fingerprint, so **a `cargo clean` would have bricked the project at any point in
 Phases 1–3.** Corrected, with the reason it stayed hidden, in the
 `pgrx-patterns` skill §8.2.
 
-**5. The staleness harness's first sentinel silently corrupted timing.** It used
+**5. A plausible misconfiguration could abort a backend, with a baffling error.**
+`CREATE EXTENSION pg_resp` succeeds *without* `shared_preload_libraries` — the
+SQL objects install fine — and in that state `_PG_init` never runs, so
+`pg_shmem_init!` never allocates the `invalidations_lost` counter and
+`PgAtomic::get()` panics through pgrx's own `.expect()`. That increment sat
+**outside** `apply_queue`'s `catch_unwind`, in a post-commit callback, where a
+panic aborts the backend. Separately, the error a user actually saw was
+`FATAL: cannot create PGC_POSTMASTER variables after startup`, naming neither
+pg_resp nor the fix. Both verified by deliberately restarting without the
+preload. Now: the counter increment is fenced, and `_PG_init` checks
+`process_shared_preload_libraries_in_progress` first (the guard
+pg_stat_statements uses) and raises "pg_resp must be loaded via
+shared_preload_libraries" with an actionable hint, as an ERROR rather than a
+connection-killing FATAL.
+
+**6. The staleness harness's first sentinel silently corrupted timing.** It used
 psql's `\echo` to mark statement completion. psql writes `\echo` from its own
 command loop, so it can appear *before* the query results it terminates — reads
 came back empty and, far worse for a benchmark, returned before the statement
