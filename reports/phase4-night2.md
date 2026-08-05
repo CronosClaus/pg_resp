@@ -235,3 +235,60 @@ committed at `e644778`. These payloads are unaffected by the 41 ms artefact
 `bench/harness/grid.sh` is idempotent per cell: the 12 completed cells are
 skipped on relaunch. Restricting `SIZES`/`PIPES` in that script re-cuts the grid
 without touching anything else.
+
+
+---
+
+# RESUMED after decisions — 2026-08-05T21:16:59Z
+
+All three decisions executed. Grid relaunched **detached** at head `76ee662`,
+90 cells (6 arms x 15 workloads x 3 connection counts), post-fix image built
+21:02:58Z. ETA ~02:25Z.
+
+## What was done
+
+**D3 — `TCP_NODELAY` fixed** (`5e725fb`), image rebuilt, and verified inert at
+1 KB exactly as expected: `P-def d1024-p16-c8` 391,697 -> 398,154 ops/s, **+1.65%
+against that cell's own 2.38% spread**. Recorded as a verification, not a
+performance claim (ENV.md §24). The 12 pre-fix cells are archived in
+`bench/results/grid-prefix-superseded/` with a README stating they can never be
+published — pre-fix image *and* a one-arm stopped grid.
+
+**D2 — hard stop widened** to `VOIDED + UNPUB` (`5e725fb`), so a grid where every
+cell blows the spread gate now stops itself instead of running to completion at a
+0% void rate. And the two blown cells were repeated first, as asked:
+`d1024-p16-c64` reproduced at **27.66%** (was 27.23%) — reproducibly unstable;
+`d1024-p16-c1` came in within gate (was 8.47%) — borderline. ENV.md §23, including
+the consequence accepted in advance: **the peak 1 KB pg_resp cell may have no
+publishable figure at all.**
+
+**D1(a) — root cause found inside the timebox.** The default socket send buffer is
+16,384 B (`net.ipv4.tcp_wmem`); a 16 KB SET is ~16,430 B with framing, so the write
+completes partially and the remainder waits on a delayed ACK. Confirmed by a
+44-byte boundary (16,340 -> 25,268 ops/s; 16,384 -> 24.6 ops/s) and by
+per-operation latency staying at 40.68-40.74 ms across a 64x concurrency change
+with throughput exactly linear in connection count. **No legitimate in-box fix
+exists** — root unavailable, the pinned memtier has no send-buffer option, and
+`--sysctl` is refused under `--network host`.
+
+**D1(b) applied.** 16 KB runs at pipeline 16 only (116k-163k ops/s, healthy). 16 KB
+at pipeline 1 is excluded as a transport artefact, with the four-way 41 ms table
+and the boundary sweep as its published proof (ENV.md §22). The ~24 ops/s figures
+are never presented as any server's numbers.
+
+## Also fixed, because it bit twice
+
+`bench/harness/box/sync.sh` (`50b2e46`). Results produced on the box as untracked
+files then committed from the workstation made every later `git pull` on the box
+abort — which once left the box running a `sweep.py` without `--warmup-keys`, and
+once let a background image rebuild start against the **old tree** because the
+pull had failed and nothing checked. The script refuses unless every file it would
+delete is byte-identical to `origin/master`.
+
+## Remaining
+
+- [ ] Grid complete (90 cells) — monitor armed for failures and stage boundaries
+- [ ] rsync + **commit raw before analysis** -> curve tables v2 + G3 verdict
+- [ ] W6 (RAM per 1M x 1 KB, caps raised ~1.5 GB, K-pg as disk + shared_buffers per D17)
+- [ ] Demo 3 measurement + G4 crossover
+- [ ] Morning report + SAFE TO DESTROY checklist
