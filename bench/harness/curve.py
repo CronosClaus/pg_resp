@@ -58,6 +58,37 @@ def fmt_pub(c: dict) -> str:
     return f"NO (spread {sp:.2f}%)"
 
 
+CLIENT_FLAGS = [
+    "data-size",
+    "pipeline",
+    "clients",
+    "threads",
+    "test-time",
+    "run-count",
+    "warmup-time",
+    "client-cpus",
+    "client-pin-mechanism",
+]
+
+
+def client_config(c: dict) -> str:
+    """The cell's client configuration, extracted from its committed `rerun`
+    command rather than restated. D14 requires identical client configuration on
+    both arms of a compared cell, so this line is the evidence for that claim —
+    and taking it from the verbatim rerun string means it cannot describe
+    something other than what ran."""
+    rerun = c.get("rerun", "")
+    parts = rerun.split()
+    vals = []
+    for flag in CLIENT_FLAGS:
+        token = f"--{flag}"
+        if token in parts:
+            i = parts.index(token)
+            if i + 1 < len(parts):
+                vals.append(f"{flag}={parts[i + 1]}")
+    return " ".join(vals) if vals else "(no rerun command recorded)"
+
+
 def curve_table(arm: str, cells: list[dict]) -> str:
     rows = sorted(
         [c for c in cells if c["arm"] == arm],
@@ -76,6 +107,35 @@ def curve_table(arm: str, cells: list[dict]) -> str:
             f"{c['p50']:.3f} | {c['p99']:.3f} | {c['p999']:.3f} | "
             f"{c['hit_rate_pct']:.2f} | {('%.2f' % sp) if sp is not None else '—'} | "
             f"{fmt_pub(c)} |"
+        )
+    out += ["", f"Client configuration per cell, from each cell's committed rerun command:", ""]
+    for c in rows:
+        out.append(f"- `{c['workload_id']}` — {client_config(c)}")
+    return "\n".join(out)
+
+
+def parity_table(a: str, b: str, cells: list[dict], paired: set[str]) -> str:
+    """Hit rate side by side for every paired workload. The two arms are not
+    capped the same way — P-* is a bounded cache that evicts, K-pg is an
+    unbounded table (ENV.md §20) — so per-cell hit rate is the reader's check on
+    whether a given comparison is doing comparable per-operation work. A hit
+    returns 1 KB where a miss returns 5 bytes, so this cuts in both directions
+    rather than favouring one arm."""
+    by = {(c["arm"], c["workload_id"]): c for c in cells}
+    out = [
+        f"### Hit-rate parity on paired cells — {a} vs {b}",
+        "",
+        f"| workload | {a} hit % | {b} hit % | difference |",
+        "|---|---|---|---|",
+    ]
+    for w in sorted(paired):
+        ca, cb = by.get((a, w)), by.get((b, w))
+        if not (ca and cb):
+            continue
+        d = ca["hit_rate_pct"] - cb["hit_rate_pct"]
+        out.append(
+            f"| {w} | {ca['hit_rate_pct']:.2f} | {cb['hit_rate_pct']:.2f} | "
+            f"{d:+.2f} pts |"
         )
     return "\n".join(out)
 
@@ -192,6 +252,8 @@ def main() -> int:
     print(matched_p99(a, b, cells, paired))
     print()
     print(own_saturation(a, b, cells))
+    print()
+    print(parity_table(a, b, cells, paired))
     return 0
 
 
