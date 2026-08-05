@@ -28,21 +28,41 @@ Before any throughput number: the reason the K-pg comparison exists is a
 difference in *what each architecture does per operation*, and that is
 countable independently of how fast any machine is.
 
-**10,000 RESP `SET`s against Redka on PostgreSQL, observed from inside that
-PostgreSQL:**
+**10,000 RESP `SET`s of distinct new keys against Redka on PostgreSQL, observed
+from inside that PostgreSQL** (measured on the official box, `ENV.md` §20):
 
 ```
-pg_stat_user_tables, relation "rstring":
-  n_tup_ins = 10000        -- one row inserted per SET
-  idx_scan  = 10001        -- one index scan per SET (plus one)
-rkey / rstring row counts:  0 -> 10000
+pg_stat_user_tables:
+  relname  | n_tup_ins | n_tup_upd | idx_scan
+  ---------+-----------+-----------+----------
+  rkey     |     10001 |         0 |    30005
+  rstring  |     10001 |         0 |    10003
+
+row counts:  rkey 0 -> 10000,  rstring 0 -> 10000
 ```
 
-Ten thousand cache writes became ten thousand row inserts and ten thousand
-index scans, inside a database, through a query planner, on a table with an
-index to maintain. pg_resp's ten thousand writes are ten thousand hash-map
-insertions in the background worker's own heap (D2) — no SQL, no planner, no
-WAL, no shared buffer.
+Ten thousand cache writes became **twenty thousand row inserts across two
+tables** and **roughly forty thousand index scans**, inside a database, through
+a query planner, on tables with indexes to maintain. pg_resp's ten thousand
+writes are ten thousand hash-map insertions in the background worker's own heap
+(D2) — no SQL, no planner, no WAL, no shared buffer.
+
+Two corrections to how this was stated before the box measurement, both of which
+happen to run in pg_resp's favour and therefore get spelled out rather than
+quietly swapped in:
+
+- An earlier draft reported only `rstring` (`n_tup_ins = 10000`,
+  `idx_scan = 10001`) and described it as "one row inserted per SET". Redka
+  writes key metadata to `rkey` *and* the value to `rstring`, so a new key costs
+  **two** inserts, and the index-scan count was understated roughly fourfold.
+- **A `SET` that overwrites an existing key is cheaper than one that creates it**
+  — an `UPDATE` to `rstring` rather than a pair of inserts. This measurement used
+  10,000 distinct new keys (`n_tup_upd = 0` confirms none were overwrites), so it
+  is the cost of *populating* a cache. A steady-state workload over a bounded key
+  space mixes both, and the per-operation cost there sits below this figure. The
+  throughput tables measure that mixed case directly; this section explains the
+  mechanism, and should not be read as the constant applying to every `SET`
+  forever.
 
 **This is the honest explanation of whatever gap the throughput tables show**,
 and it is worth more than the ratio itself: it is a structural property of the
@@ -62,7 +82,7 @@ Two things it is *not*:
   configured in Redka's favour (`synchronous_commit=off` and the rest, ENV.md
   §7), so that this per-operation cost is what remains rather than fsync.
 
-Reproduce: `bench/results/ENV.md` §6.
+Reproduce: `bench/results/ENV.md` §20 (official box) and §6 (first verification).
 
 ## Raw throughput — PENDING (dedicated box)
 
