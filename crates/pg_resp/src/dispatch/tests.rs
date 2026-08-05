@@ -32,11 +32,18 @@ fn hello_2_returns_resp2_array_not_error() {
 }
 
 #[test]
-fn hello_3_returns_noproto_error() {
+fn hello_3_returns_unknown_command_not_noproto() {
+    // Empirically required (see dispatch.rs's HELLO comment): redis-py
+    // defaults to requesting HELLO 3 and tolerates "unknown command" as a
+    // signal to fall back to RESP2, but treats a spec-correct NOPROTO reply
+    // as fatal. Matching real client behavior over spec purism here.
     let mut s = Store::new();
     match run(&mut s, &["HELLO", "3"]) {
-        Reply::Error(msg) => assert!(String::from_utf8_lossy(&msg).starts_with("NOPROTO")),
-        other => panic!("expected NOPROTO error, got {other:?}"),
+        Reply::Error(msg) => {
+            assert!(String::from_utf8_lossy(&msg).contains("unknown command"));
+            assert!(!String::from_utf8_lossy(&msg).contains("NOPROTO"));
+        }
+        other => panic!("expected unknown-command-style error, got {other:?}"),
     }
 }
 

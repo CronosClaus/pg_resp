@@ -153,48 +153,55 @@ pub fn dispatch(
             1 => Reply::bulk(rest[0].clone()),
             _ => err_wrong_args("echo"),
         },
-        // Client-handshake survival, not RESP3 support: the resp-protocol
-        // skill originally assumed clients fall back to RESP2 on an
-        // "unknown command" reply to HELLO — the docker-based compat matrix
-        // (bible §5 Phase 1 gate) proved that wrong for real: redis-py's
-        // connection setup raises on any error reply to HELLO instead of
-        // falling back. This returns a RESP2 array (never a RESP3 Map —
-        // bible D9/T0-T2 scope forbids implementing real RESP3), matching
-        // what real Redis/Valkey send for `HELLO 2` specifically.
+        // Client-handshake survival, not RESP3 support. Two rounds of
+        // empirical correction went into this (docker-based compat matrix,
+        // bible §5 Phase 1 gate — recorded in reports/phase1.md and the
+        // resp-protocol skill):
+        // 1. Original assumption: clients fall back to RESP2 on an
+        //    "unknown command" reply to HELLO. First fix attempt instead
+        //    made HELLO a real command, replying spec-correct `-NOPROTO`
+        //    for unsupported versions (the RESP spec's own documented
+        //    behavior for "protocol version too big").
+        // 2. That spec-correct NOPROTO reply broke redis-py: its default
+        //    `protocol=None` resolves to RESP3 internally
+        //    (`check_protocol_version`'s `DEFAULT_RESP_VERSION`), so it
+        //    always sends `HELLO 3` first — and its handshake code treats a
+        //    NOPROTO response as fatal (no downgrade-and-retry), while it
+        //    DID tolerate the original plain "unknown command" reply and
+        //    proceeded in RESP2. Real clients apparently read "unknown
+        //    command" as "this server predates HELLO entirely, assume
+        //    RESP2" and NOPROTO as "this server understands HELLO but
+        //    explicitly refuses me" — a harder failure they don't retry.
+        // Net result: HELLO succeeds (RESP2 array, never a RESP3 Map — bible
+        // D9 forbids implementing real RESP3) for version 2 or absent;
+        // anything else gets the exact same reply shape a truly-unknown
+        // command would, not NOPROTO — matching what was empirically proven
+        // to work, not just what the spec says is correct.
         "HELLO" => {
             let ver = if rest.is_empty() {
-                2
+                Some(2)
             } else {
-                match parse_i64(&rest[0]) {
-                    Some(v) => v,
-                    None => {
-                        return Reply::error(
-                            "NOPROTO unsupported protocol version",
-                        )
-                    }
-                }
+                parse_i64(&rest[0])
             };
-            if ver >= 3 {
-                return Reply::error(
-                    "NOPROTO sorry, this protocol version is not supported.",
-                );
+            match ver {
+                Some(2) => Reply::Array(Some(vec![
+                    Reply::bulk("server"),
+                    Reply::bulk("redis"),
+                    Reply::bulk("version"),
+                    Reply::bulk("7.0.0"),
+                    Reply::bulk("proto"),
+                    Reply::Integer(2),
+                    Reply::bulk("id"),
+                    Reply::Integer(1),
+                    Reply::bulk("mode"),
+                    Reply::bulk("standalone"),
+                    Reply::bulk("role"),
+                    Reply::bulk("master"),
+                    Reply::bulk("modules"),
+                    Reply::Array(Some(vec![])),
+                ])),
+                _ => Reply::error("ERR unknown command 'HELLO'"),
             }
-            Reply::Array(Some(vec![
-                Reply::bulk("server"),
-                Reply::bulk("redis"),
-                Reply::bulk("version"),
-                Reply::bulk("7.0.0"),
-                Reply::bulk("proto"),
-                Reply::Integer(2),
-                Reply::bulk("id"),
-                Reply::Integer(1),
-                Reply::bulk("mode"),
-                Reply::bulk("standalone"),
-                Reply::bulk("role"),
-                Reply::bulk("master"),
-                Reply::bulk("modules"),
-                Reply::Array(Some(vec![])),
-            ]))
         }
         "GET" => match rest.len() {
             1 => match store.get(mono_now, &rest[0]) {

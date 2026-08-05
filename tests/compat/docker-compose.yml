@@ -62,7 +62,9 @@ services:
         condition: service_healthy
     volumes:
       - ./go_redis:/scripts:ro
-    entrypoint: ["sh", "-c", "cp -r /scripts /work && cd /work && go mod download && go run main.go pg_resp 6379"]
+    # `go mod download` alone doesn't populate go.sum for a fresh module;
+    # needs `go mod tidy` first (found by actually running this).
+    entrypoint: ["sh", "-c", "cp -r /scripts /work && cd /work && go mod tidy && go run main.go pg_resp 6379"]
 
   jedis:
     image: maven:3-eclipse-temurin-21
