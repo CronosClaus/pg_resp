@@ -9,8 +9,22 @@ fn t0() -> Instant {
 fn clear_empties_store_and_resets_used_bytes() {
     let mut s = Store::new();
     let now = t0();
-    s.set(now, b"a", b"1".to_vec(), Expiry::None, Condition::None, false);
-    s.set(now, b"b", b"2".to_vec(), Expiry::None, Condition::None, false);
+    s.set(
+        now,
+        b"a",
+        b"1".to_vec(),
+        Expiry::None,
+        Condition::None,
+        false,
+    );
+    s.set(
+        now,
+        b"b",
+        b"2".to_vec(),
+        Expiry::None,
+        Condition::None,
+        false,
+    );
     s.clear();
     assert_eq!(s.len(), 0);
     assert_eq!(s.used_bytes(), 0);
@@ -38,7 +52,14 @@ fn persist_on_key_without_ttl_or_missing_returns_false() {
     let mut s = Store::new();
     let now = t0();
     assert!(!s.persist(now, b"missing"));
-    s.set(now, b"k", b"v".to_vec(), Expiry::None, Condition::None, false);
+    s.set(
+        now,
+        b"k",
+        b"v".to_vec(),
+        Expiry::None,
+        Condition::None,
+        false,
+    );
     assert!(!s.persist(now, b"k"));
 }
 
@@ -52,7 +73,14 @@ fn random_key_none_on_empty_store() {
 fn random_key_returns_an_existing_key() {
     let mut s = Store::new();
     let now = t0();
-    s.set(now, b"only", b"v".to_vec(), Expiry::None, Condition::None, false);
+    s.set(
+        now,
+        b"only",
+        b"v".to_vec(),
+        Expiry::None,
+        Condition::None,
+        false,
+    );
     assert_eq!(s.random_key(now), Some(b"only".to_vec()));
 }
 
@@ -60,7 +88,14 @@ fn random_key_returns_an_existing_key() {
 fn get_del_returns_value_and_removes_key() {
     let mut s = Store::new();
     let now = t0();
-    s.set(now, b"k", b"v".to_vec(), Expiry::None, Condition::None, false);
+    s.set(
+        now,
+        b"k",
+        b"v".to_vec(),
+        Expiry::None,
+        Condition::None,
+        false,
+    );
     assert_eq!(s.get_del(now, b"k"), Some(b"v".to_vec()));
     assert_eq!(s.get(now, b"k"), None);
 }
@@ -107,7 +142,14 @@ fn get_ex_with_persist_option_clears_ttl() {
 fn get_ex_with_at_option_sets_new_ttl() {
     let mut s = Store::new();
     let now = t0();
-    s.set(now, b"k", b"v".to_vec(), Expiry::None, Condition::None, false);
+    s.set(
+        now,
+        b"k",
+        b"v".to_vec(),
+        Expiry::None,
+        Condition::None,
+        false,
+    );
     assert_eq!(
         s.get_ex(now, b"k", Some(Expiry::At(now + Duration::from_secs(30)))),
         Some(b"v".to_vec())
@@ -136,8 +178,14 @@ fn eviction_kicks_in_when_over_budget() {
             false,
         );
     }
-    assert!(s.len() < 10, "eviction should have kept the store under 10 entries");
-    assert!(s.used_bytes() <= PER_ENTRY_OVERHEAD_BYTES * 4, "should stay near budget + one entry");
+    assert!(
+        s.len() < 10,
+        "eviction should have kept the store under 10 entries"
+    );
+    assert!(
+        s.used_bytes() <= PER_ENTRY_OVERHEAD_BYTES * 4,
+        "should stay near budget + one entry"
+    );
 }
 
 #[test]
@@ -170,7 +218,14 @@ fn active_expire_sweep_removes_expired_and_leaves_live_keys() {
         Condition::None,
         false,
     );
-    s.set(now, b"forever", b"v".to_vec(), Expiry::None, Condition::None, false);
+    s.set(
+        now,
+        b"forever",
+        b"v".to_vec(),
+        Expiry::None,
+        Condition::None,
+        false,
+    );
 
     let later = now + Duration::from_millis(50);
     let removed = s.active_expire_sweep(later, 20);
@@ -189,7 +244,14 @@ fn get_missing_returns_none() {
 fn set_then_get() {
     let mut s = Store::new();
     let now = t0();
-    s.set(now, b"k", b"v".to_vec(), Expiry::None, Condition::None, false);
+    s.set(
+        now,
+        b"k",
+        b"v".to_vec(),
+        Expiry::None,
+        Condition::None,
+        false,
+    );
     assert_eq!(s.get(now, b"k"), Some(&b"v"[..]));
 }
 
@@ -207,7 +269,14 @@ fn set_without_expiry_clears_any_existing_ttl() {
     );
     assert_eq!(s.ttl_seconds(now, b"k"), 10);
     // Plain SET (Expiry::None) must clear the TTL.
-    s.set(now, b"k", b"v2".to_vec(), Expiry::None, Condition::None, false);
+    s.set(
+        now,
+        b"k",
+        b"v2".to_vec(),
+        Expiry::None,
+        Condition::None,
+        false,
+    );
     assert_eq!(s.ttl_seconds(now, b"k"), -1);
 }
 
@@ -222,7 +291,14 @@ fn ttl_missing_key_is_neg2() {
 fn ttl_key_with_no_expiry_is_neg1() {
     let mut s = Store::new();
     let now = t0();
-    s.set(now, b"k", b"v".to_vec(), Expiry::None, Condition::None, false);
+    s.set(
+        now,
+        b"k",
+        b"v".to_vec(),
+        Expiry::None,
+        Condition::None,
+        false,
+    );
     assert_eq!(s.ttl_seconds(now, b"k"), -1);
     assert_eq!(s.pttl_millis(now, b"k"), -1);
 }
@@ -287,14 +363,25 @@ fn lazy_expiry_removes_key_after_deadline() {
     );
     let later = now + Duration::from_millis(200);
     assert_eq!(s.get(later, b"k"), None);
-    assert_eq!(s.len(), 0, "expired key must be physically removed on access");
+    assert_eq!(
+        s.len(),
+        0,
+        "expired key must be physically removed on access"
+    );
 }
 
 #[test]
 fn set_nx_on_existing_is_noop() {
     let mut s = Store::new();
     let now = t0();
-    s.set(now, b"k", b"v1".to_vec(), Expiry::None, Condition::None, false);
+    s.set(
+        now,
+        b"k",
+        b"v1".to_vec(),
+        Expiry::None,
+        Condition::None,
+        false,
+    );
     let outcome = s.set(
         now,
         b"k",
@@ -343,7 +430,14 @@ fn set_xx_on_missing_is_noop() {
 fn set_xx_on_existing_applies() {
     let mut s = Store::new();
     let now = t0();
-    s.set(now, b"k", b"v1".to_vec(), Expiry::None, Condition::None, false);
+    s.set(
+        now,
+        b"k",
+        b"v1".to_vec(),
+        Expiry::None,
+        Condition::None,
+        false,
+    );
     let outcome = s.set(
         now,
         b"k",
@@ -360,8 +454,22 @@ fn set_xx_on_existing_applies() {
 fn set_get_option_returns_old_value_and_still_sets() {
     let mut s = Store::new();
     let now = t0();
-    s.set(now, b"k", b"old".to_vec(), Expiry::None, Condition::None, false);
-    let outcome = s.set(now, b"k", b"new".to_vec(), Expiry::None, Condition::None, true);
+    s.set(
+        now,
+        b"k",
+        b"old".to_vec(),
+        Expiry::None,
+        Condition::None,
+        false,
+    );
+    let outcome = s.set(
+        now,
+        b"k",
+        b"new".to_vec(),
+        Expiry::None,
+        Condition::None,
+        true,
+    );
     assert!(outcome.applied);
     assert_eq!(outcome.old_value, Some(b"old".to_vec()));
     assert_eq!(s.get(now, b"k"), Some(&b"new"[..]));
@@ -371,7 +479,14 @@ fn set_get_option_returns_old_value_and_still_sets() {
 fn set_get_option_on_missing_key_returns_none_and_still_sets() {
     let mut s = Store::new();
     let now = t0();
-    let outcome = s.set(now, b"k", b"v".to_vec(), Expiry::None, Condition::None, true);
+    let outcome = s.set(
+        now,
+        b"k",
+        b"v".to_vec(),
+        Expiry::None,
+        Condition::None,
+        true,
+    );
     assert!(outcome.applied);
     assert_eq!(outcome.old_value, None);
     assert_eq!(s.get(now, b"k"), Some(&b"v"[..]));
@@ -389,7 +504,14 @@ fn set_keepttl_preserves_existing_expiry() {
         Condition::None,
         false,
     );
-    s.set(now, b"k", b"v2".to_vec(), Expiry::KeepTtl, Condition::None, false);
+    s.set(
+        now,
+        b"k",
+        b"v2".to_vec(),
+        Expiry::KeepTtl,
+        Condition::None,
+        false,
+    );
     assert_eq!(s.ttl_seconds(now, b"k"), 10);
     assert_eq!(s.get(now, b"k"), Some(&b"v2"[..]));
 }
@@ -398,7 +520,14 @@ fn set_keepttl_preserves_existing_expiry() {
 fn del_counts_only_existing_keys() {
     let mut s = Store::new();
     let now = t0();
-    s.set(now, b"a", b"1".to_vec(), Expiry::None, Condition::None, false);
+    s.set(
+        now,
+        b"a",
+        b"1".to_vec(),
+        Expiry::None,
+        Condition::None,
+        false,
+    );
     let count = s.del(now, &[b"a", b"missing"]);
     assert_eq!(count, 1);
     assert_eq!(s.get(now, b"a"), None);
@@ -408,7 +537,14 @@ fn del_counts_only_existing_keys() {
 fn exists_counts_repeats() {
     let mut s = Store::new();
     let now = t0();
-    s.set(now, b"x", b"1".to_vec(), Expiry::None, Condition::None, false);
+    s.set(
+        now,
+        b"x",
+        b"1".to_vec(),
+        Expiry::None,
+        Condition::None,
+        false,
+    );
     assert_eq!(s.exists(now, &[b"x", b"x", b"x"]), 3);
     assert_eq!(s.exists(now, &[b"missing"]), 0);
 }
@@ -424,7 +560,14 @@ fn expire_on_missing_key_returns_false() {
 fn expire_on_existing_key_sets_ttl_and_returns_true() {
     let mut s = Store::new();
     let now = t0();
-    s.set(now, b"k", b"v".to_vec(), Expiry::None, Condition::None, false);
+    s.set(
+        now,
+        b"k",
+        b"v".to_vec(),
+        Expiry::None,
+        Condition::None,
+        false,
+    );
     assert!(s.expire(now, b"k", now + Duration::from_secs(10)));
     assert_eq!(s.ttl_seconds(now, b"k"), 10);
 }
@@ -441,7 +584,14 @@ fn incr_missing_key_starts_at_zero() {
 fn incr_on_existing_integer() {
     let mut s = Store::new();
     let now = t0();
-    s.set(now, b"n", b"10".to_vec(), Expiry::None, Condition::None, false);
+    s.set(
+        now,
+        b"n",
+        b"10".to_vec(),
+        Expiry::None,
+        Condition::None,
+        false,
+    );
     assert_eq!(s.incr_by(now, b"n", 1), Ok(11));
     assert_eq!(s.incr_by(now, b"n", 3), Ok(14));
 }
@@ -450,7 +600,14 @@ fn incr_on_existing_integer() {
 fn decr_is_incr_by_negative_delta() {
     let mut s = Store::new();
     let now = t0();
-    s.set(now, b"n", b"5".to_vec(), Expiry::None, Condition::None, false);
+    s.set(
+        now,
+        b"n",
+        b"5".to_vec(),
+        Expiry::None,
+        Condition::None,
+        false,
+    );
     assert_eq!(s.incr_by(now, b"n", -1), Ok(4));
 }
 
@@ -504,8 +661,22 @@ fn incr_preserves_existing_ttl() {
 fn mget_returns_nil_for_missing_keys_in_place() {
     let mut s = Store::new();
     let now = t0();
-    s.set(now, b"k1", b"v1".to_vec(), Expiry::None, Condition::None, false);
-    s.set(now, b"k2", b"v2".to_vec(), Expiry::None, Condition::None, false);
+    s.set(
+        now,
+        b"k1",
+        b"v1".to_vec(),
+        Expiry::None,
+        Condition::None,
+        false,
+    );
+    s.set(
+        now,
+        b"k2",
+        b"v2".to_vec(),
+        Expiry::None,
+        Condition::None,
+        false,
+    );
     let result = s.mget(now, &[b"k1", b"missing", b"k2"]);
     assert_eq!(
         result,
@@ -525,10 +696,17 @@ fn mset_sets_multiple_keys_and_clears_ttl() {
         Condition::None,
         false,
     );
-    s.mset(&[(&b"k1"[..], b"new1".to_vec()), (&b"k2"[..], b"new2".to_vec())]);
+    s.mset(&[
+        (&b"k1"[..], b"new1".to_vec()),
+        (&b"k2"[..], b"new2".to_vec()),
+    ]);
     assert_eq!(s.get(now, b"k1"), Some(&b"new1"[..]));
     assert_eq!(s.get(now, b"k2"), Some(&b"new2"[..]));
-    assert_eq!(s.ttl_seconds(now, b"k1"), -1, "mset clears TTL like a plain SET");
+    assert_eq!(
+        s.ttl_seconds(now, b"k1"),
+        -1,
+        "mset clears TTL like a plain SET"
+    );
 }
 
 #[test]

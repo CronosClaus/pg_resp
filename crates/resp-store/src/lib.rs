@@ -593,6 +593,6 @@ impl Store {
 }
 
 #[cfg(test)]
-mod tests;
-#[cfg(test)]
 mod proptests;
+#[cfg(test)]
+mod tests;

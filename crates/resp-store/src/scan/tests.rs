@@ -31,7 +31,10 @@ fn full_scan_collects_every_key_no_misses() {
     let mut expected: Vec<Vec<u8>> = all.iter().map(|k| k.to_vec()).collect();
     collected.sort();
     expected.sort();
-    assert_eq!(collected, expected, "a full scan must find every key present for its whole duration");
+    assert_eq!(
+        collected, expected,
+        "a full scan must find every key present for its whole duration"
+    );
 }
 
 #[test]
@@ -60,7 +63,10 @@ fn unknown_cursor_restarts_instead_of_erroring() {
     // A cursor id that was never issued — simulates a miss (e.g. after a
     // restart, or a client holding a stale id from a different registry).
     let (next, page) = reg.scan(now, 999_999, 3, || keys(10));
-    assert!(next != 0 || page.len() == 10, "a miss must restart the scan, not error");
+    assert!(
+        next != 0 || page.len() == 10,
+        "a miss must restart the scan, not error"
+    );
 }
 
 #[test]
@@ -73,7 +79,10 @@ fn idle_cursor_expires_after_60s_and_restarts() {
     let (c2, page) = reg.scan(later, c1, 3, || keys(10));
     // Restarted: page comes from a fresh snapshot at position 0 again.
     assert_eq!(page.len(), 3);
-    assert!(c2 != c1 || c2 == 0, "an idle-expired cursor must not silently resume mid-scan");
+    assert!(
+        c2 != c1 || c2 == 0,
+        "an idle-expired cursor must not silently resume mid-scan"
+    );
 }
 
 #[test]
@@ -83,7 +92,10 @@ fn registry_bounded_to_max_live_cursors() {
     // Start more concurrent scans than the cap, never finishing any of them.
     for _ in 0..(MAX_LIVE_CURSORS + 20) {
         let (cursor, _) = reg.scan(now, 0, 1, || keys(50));
-        assert!(cursor != 0, "each scan should have more pages left, so a live cursor is registered");
+        assert!(
+            cursor != 0,
+            "each scan should have more pages left, so a live cursor is registered"
+        );
     }
     assert!(
         reg.live_cursor_count() <= MAX_LIVE_CURSORS,
