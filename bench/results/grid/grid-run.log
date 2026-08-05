@@ -1,0 +1,103 @@
+### GRID START 2026-08-05T19:36:57Z  head=b6d38cc
+### warm-up v2, 200000 keys; 6 arms x 18 workloads; 3x60s per cell
+
+======== 19:36:57Z  P-def  d64-p1-c1  -> bench/results/grid ========
+stopped every arm except P-def
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-def
+OK   only P-def is live
+P-def  d64-p1-c1             25,128.09 ops/s  p50   0.039  p99   0.055  p99.9    0.063  hit 48.28%
+raw:  bench/results/grid/2026-08-05-P-def-d64-p1-c1.txt
+json: bench/results/grid/2026-08-05-P-def-d64-p1-c1.json
+
+======== 19:40:14Z  P-def  d64-p1-c8  -> bench/results/grid ========
+stopped every arm except P-def
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-def
+OK   only P-def is live
+P-def  d64-p1-c8             94,639.60 ops/s  p50   0.087  p99   0.103  p99.9    0.119  hit 16.72%
+raw:  bench/results/grid/2026-08-05-P-def-d64-p1-c8.txt
+json: bench/results/grid/2026-08-05-P-def-d64-p1-c8.json
+
+======== 19:43:25Z  P-def  d64-p1-c64  -> bench/results/grid ========
+stopped every arm except P-def
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-def
+OK   only P-def is live
+P-def  d64-p1-c64            94,633.86 ops/s  p50   0.679  p99   0.767  p99.9    0.927  hit  4.68%
+raw:  bench/results/grid/2026-08-05-P-def-d64-p1-c64.txt
+json: bench/results/grid/2026-08-05-P-def-d64-p1-c64.json
+
+======== 19:46:36Z  P-def  d64-p16-c1  -> bench/results/grid ========
+stopped every arm except P-def
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-def
+OK   only P-def is live
+P-def  d64-p16-c1           266,115.89 ops/s  p50   0.063  p99   0.071  p99.9    0.095  hit 88.36%
+raw:  bench/results/grid/2026-08-05-P-def-d64-p16-c1.txt
+json: bench/results/grid/2026-08-05-P-def-d64-p16-c1.json
+
+======== 19:49:45Z  P-def  d64-p16-c8  -> bench/results/grid ========
+stopped every arm except P-def
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-def
+OK   only P-def is live
+P-def  d64-p16-c8           904,655.31 ops/s  p50   0.143  p99   0.167  p99.9    0.191  hit 64.40%
+raw:  bench/results/grid/2026-08-05-P-def-d64-p16-c8.txt
+json: bench/results/grid/2026-08-05-P-def-d64-p16-c8.json
+
+======== 19:52:54Z  P-def  d64-p16-c64  -> bench/results/grid ========
+stopped every arm except P-def
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-def
+OK   only P-def is live
+P-def  d64-p16-c64        1,149,882.05 ops/s  p50   0.887  p99   1.039  p99.9    1.495  hit 15.80%
+raw:  bench/results/grid/2026-08-05-P-def-d64-p16-c64.txt
+json: bench/results/grid/2026-08-05-P-def-d64-p16-c64.json
+
+======== 19:56:03Z  P-def  d1024-p1-c1  -> bench/results/grid ========
+stopped every arm except P-def
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-def
+OK   only P-def is live
+P-def  d1024-p1-c1           24,529.40 ops/s  p50   0.047  p99   0.055  p99.9    0.071  hit 46.49%
+raw:  bench/results/grid/2026-08-05-P-def-d1024-p1-c1.txt
+json: bench/results/grid/2026-08-05-P-def-d1024-p1-c1.json
+
+======== 19:59:20Z  P-def  d1024-p1-c8  -> bench/results/grid ========
+stopped every arm except P-def
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-def
+OK   only P-def is live
+P-def  d1024-p1-c8           91,844.25 ops/s  p50   0.087  p99   0.111  p99.9    0.127  hit 16.47%
+raw:  bench/results/grid/2026-08-05-P-def-d1024-p1-c8.txt
+json: bench/results/grid/2026-08-05-P-def-d1024-p1-c8.json
+
+======== 20:02:31Z  P-def  d1024-p1-c64  -> bench/results/grid ========
+stopped every arm except P-def
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-def
+OK   only P-def is live
+P-def  d1024-p1-c64          93,263.28 ops/s  p50   0.687  p99   0.775  p99.9    0.943  hit  5.34%
+raw:  bench/results/grid/2026-08-05-P-def-d1024-p1-c64.txt
+json: bench/results/grid/2026-08-05-P-def-d1024-p1-c64.json
+
+======== 20:05:42Z  P-def  d1024-p16-c1  -> bench/results/grid ========
+stopped every arm except P-def
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-def
+OK   only P-def is live
+P-def  d1024-p16-c1         259,798.08 ops/s  p50   0.063  p99   0.087  p99.9    0.111  hit 35.68%  **[unpublishable: spread 8.47% > 8%]**
+raw:  bench/results/grid/2026-08-05-P-def-d1024-p16-c1.txt
+json: bench/results/grid/2026-08-05-P-def-d1024-p16-c1.json
+
+======== 20:08:51Z  P-def  d1024-p16-c8  -> bench/results/grid ========
+stopped every arm except P-def
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-def
+OK   only P-def is live
+P-def  d1024-p16-c8         391,696.52 ops/s  p50   0.327  p99   0.367  p99.9    0.415  hit 38.87%
+raw:  bench/results/grid/2026-08-05-P-def-d1024-p16-c8.txt
+json: bench/results/grid/2026-08-05-P-def-d1024-p16-c8.json
+
+======== 20:12:00Z  P-def  d1024-p16-c64  -> bench/results/grid ========
+stopped every arm except P-def
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-def
+OK   only P-def is live
+P-def  d1024-p16-c64        441,963.54 ops/s  p50   2.431  p99   2.671  p99.9    4.831  hit  9.34%  **[unpublishable: spread 27.23% > 8%]**
+raw:  bench/results/grid/2026-08-05-P-def-d1024-p16-c64.txt
+json: bench/results/grid/2026-08-05-P-def-d1024-p16-c64.json
+
+======== 20:15:09Z  P-def  d16384-p1-c1  -> bench/results/grid ========
+stopped every arm except P-def
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-def
+OK   only P-def is live
