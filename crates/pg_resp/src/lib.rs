@@ -1,5 +1,6 @@
 use mio::net::{TcpListener as MioTcpListener, TcpStream as MioTcpStream};
 use mio::{Events, Interest, Poll, Token};
+use pgrx::atomics::PgAtomic;
 use pgrx::bgworkers::*;
 use pgrx::guc::{GucContext, GucFlags, GucRegistry, GucSetting};
 use pgrx::prelude::*;
@@ -9,12 +10,13 @@ use std::collections::HashMap;
 use std::ffi::CString;
 use std::io::{Read, Write};
 use std::net::TcpListener;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
 mod dispatch;
 mod glob;
+mod sql;
 
 ::pgrx::pg_module_magic!(name, version);
 
@@ -44,8 +46,67 @@ static BIND_ADDRESS: GucSetting<Option<CString>> =
     GucSetting::<Option<CString>>::new(Some(c"127.0.0.1"));
 static PORT: GucSetting<i32> = GucSetting::<i32>::new(6379);
 static MAX_MEMORY_MB: GucSetting<i32> = GucSetting::<i32>::new(256); // bible §3.5 default
-static EVICTION: GucSetting<Option<CString>> = GucSetting::<Option<CString>>::new(Some(c"clock_lru"));
+static EVICTION: GucSetting<Option<CString>> =
+    GucSetting::<Option<CString>>::new(Some(c"clock_lru"));
 static PASSWORD: GucSetting<Option<CString>> = GucSetting::<Option<CString>>::new(None);
+
+/// Count of post-commit cache invalidations that could not be delivered
+/// (`D13`).
+///
+/// This is the one piece of pg_resp state that lives in **Postgres shared
+/// memory**, and it has to, for a reason that is not a preference: the counter
+/// is incremented by *backends* at commit time, precisely when the bgworker's
+/// store was unreachable. Keeping it in the store would mean the number can
+/// only be recorded when the thing that failed is working. Keeping it in a
+/// backend-local static would mean it dies with the session. Shared memory is
+/// the only place both the incrementing backends and the reporting server
+/// thread can see it.
+///
+/// `D2` ("v0.1 store = bgworker-local heap, not PG shared memory") is not
+/// violated: the *store* stays local. This is a single `u64`, which is what
+/// pgrx's shmem support is genuinely safe at.
+///
+/// The server thread reads it through a plain `&'static AtomicU64` captured on
+/// the main thread before the thread is spawned (see
+/// `background_worker_main`) — an atomic load through an inherited shmem
+/// pointer, not a PG function call, so iron rule 1 holds.
+static INVALIDATIONS_LOST: PgAtomic<AtomicU64> =
+    unsafe { PgAtomic::new(c"pg_resp_invalidations_lost") };
+
+/// Where a *backend* should connect to reach the RESP server, and with what
+/// password.
+///
+/// Callable only from a backend's or the bgworker's main thread —
+/// `GucSetting::get()` enforces that at runtime (pgrx-patterns §4).
+///
+/// `bind_address` is the server's *listen* address, which is not always a
+/// usable *connect* address: `0.0.0.0` and `::` mean "every interface" to
+/// `bind()` and are useless to `connect()`. Loopback is the right target in
+/// both of those cases, and is also the correct choice on principle — a
+/// backend and the bgworker are always on the same host, so cache traffic
+/// should never leave it even when the listener is deliberately exposed.
+pub(crate) fn loopback_target() -> (String, Option<Vec<u8>>) {
+    let bind = BIND_ADDRESS
+        .get()
+        .map(|c| c.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "127.0.0.1".to_string());
+    let host = match bind.as_str() {
+        "0.0.0.0" | "" => "127.0.0.1".to_string(),
+        "::" | "[::]" | "::0" => "::1".to_string(),
+        other => other.to_string(),
+    };
+    let port = PORT.get();
+    let addr = if host.contains(':') && !host.starts_with('[') {
+        format!("[{host}]:{port}")
+    } else {
+        format!("{host}:{port}")
+    };
+    let password = PASSWORD
+        .get()
+        .map(|c| c.to_bytes().to_vec())
+        .filter(|p| !p.is_empty());
+    (addr, password)
+}
 
 /// `log!()` (and any other pgrx/PG-FFI-backed macro) is forbidden off the
 /// main bgworker thread — pgrx enforces this at *runtime* and panics on
@@ -125,6 +186,11 @@ pub extern "C-unwind" fn _PG_init() {
         GucFlags::empty(),
     );
 
+    // Must happen in _PG_init (which only runs at all because pg_resp is in
+    // shared_preload_libraries) — the shmem request hook it installs is only
+    // consulted during postmaster startup.
+    pgrx::pg_shmem_init!(INVALIDATIONS_LOST);
+
     BackgroundWorkerBuilder::new("pg_resp")
         .set_function("background_worker_main")
         .set_library("pg_resp")
@@ -171,7 +237,18 @@ pub extern "C-unwind" fn background_worker_main(_arg: pg_sys::Datum) {
     } else {
         max_memory_bytes
     };
-    let password: Option<Vec<u8>> = PASSWORD.get().map(|c| c.to_bytes().to_vec()).filter(|p| !p.is_empty());
+    let password: Option<Vec<u8>> = PASSWORD
+        .get()
+        .map(|c| c.to_bytes().to_vec())
+        .filter(|p| !p.is_empty());
+
+    // Resolve the shmem counter to a plain reference here, on the main thread,
+    // and hand that to the server thread. `&'static AtomicU64` is Send + Sync,
+    // and loading it is an atomic read of inherited shared memory rather than
+    // a PG call — so the server thread can report `invalidations_lost` in INFO
+    // without ever touching pgrx (iron rule 1). Resolving it *here* also
+    // sidesteps reading `PgAtomic`'s own `UnsafeCell` pointer from two threads.
+    let invalidations_lost: &'static AtomicU64 = INVALIDATIONS_LOST.get();
 
     log!("pg_resp: starting, binding {addr}");
 
@@ -204,7 +281,13 @@ pub extern "C-unwind" fn background_worker_main(_arg: pg_sys::Datum) {
     // `accept()` handling) is at least logged loudly instead of vanishing.
     let server_thread = std::thread::spawn(move || {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            server_loop(listener, server_shutdown, max_memory_bytes, password);
+            server_loop(
+                listener,
+                server_shutdown,
+                max_memory_bytes,
+                password,
+                invalidations_lost,
+            );
         }));
         if let Err(payload) = result {
             let msg = payload
@@ -257,6 +340,7 @@ fn server_loop(
     shutdown: Arc<AtomicBool>,
     max_memory_bytes: Option<usize>,
     password: Option<Vec<u8>>,
+    invalidations_lost: &'static AtomicU64,
 ) {
     let mut store = match max_memory_bytes {
         Some(bytes) => Store::with_max_memory(bytes),
@@ -271,9 +355,9 @@ fn server_loop(
             return;
         }
     };
-    if let Err(e) =
-        poll.registry()
-            .register(&mut mio_listener, LISTENER_TOKEN, Interest::READABLE)
+    if let Err(e) = poll
+        .registry()
+        .register(&mut mio_listener, LISTENER_TOKEN, Interest::READABLE)
     {
         server_log!("failed to register listener with poll: {e}, exiting server thread");
         return;
@@ -343,7 +427,7 @@ fn server_loop(
                     Some(conn) => {
                         let password_ref = password.as_deref();
                         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            service_connection(conn, &mut store, password_ref)
+                            service_connection(conn, &mut store, password_ref, invalidations_lost)
                         })) {
                             Ok(keep) => keep,
                             Err(_) => {
@@ -370,7 +454,12 @@ fn server_loop(
 /// Reads what's available, dispatches every complete command in the buffer,
 /// writes replies. Returns false if the connection should be dropped
 /// (peer closed, I/O error, QUIT, or an unrecoverable protocol error).
-fn service_connection(conn: &mut Conn, store: &mut Store, password: Option<&[u8]>) -> bool {
+fn service_connection(
+    conn: &mut Conn,
+    store: &mut Store,
+    password: Option<&[u8]>,
+    invalidations_lost: &AtomicU64,
+) -> bool {
     let mut chunk = [0u8; READ_CHUNK];
     loop {
         match conn.stream.read(&mut chunk) {
@@ -397,6 +486,7 @@ fn service_connection(conn: &mut Conn, store: &mut Store, password: Option<&[u8]
                         &args,
                         &mut conn.conn_state,
                         password,
+                        invalidations_lost.load(Ordering::Relaxed),
                     );
                     reply.write_to(&mut conn.write_buf);
                     if is_quit {

@@ -69,7 +69,11 @@ fn upper(bytes: &[u8]) -> String {
 /// Translate a target epoch time (seconds or milliseconds since Unix epoch)
 /// into a monotonic `Instant` deadline, correlated against one wall-clock/
 /// monotonic-clock pair captured once per command (`sys_now`/`mono_now`).
-fn resolve_absolute_deadline(sys_now: SystemTime, mono_now: Instant, target_epoch_ms: i64) -> Instant {
+fn resolve_absolute_deadline(
+    sys_now: SystemTime,
+    mono_now: Instant,
+    target_epoch_ms: i64,
+) -> Instant {
     let now_epoch_ms = sys_now
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
@@ -159,6 +163,7 @@ pub fn dispatch(
     args: &[Vec<u8>],
     conn: &mut ConnState,
     required_password: Option<&[u8]>,
+    invalidations_lost: u64,
 ) -> Reply {
     if args.is_empty() {
         // Empty inline / *0 command: no-op. Caller should send nothing back;
@@ -427,6 +432,7 @@ pub fn dispatch(
                  keyspace_hits:{}\r\n\
                  keyspace_misses:{}\r\n\
                  evicted_keys:{}\r\n\
+                 invalidations_lost:{}\r\n\
                  # Keyspace\r\n\
                  db0:keys={}\r\n",
                 env!("CARGO_PKG_VERSION"),
@@ -435,6 +441,14 @@ pub fn dispatch(
                 stats.hits,
                 stats.misses,
                 stats.evictions,
+                // Not a store counter: this one is incremented by *backends*
+                // (see sql.rs), in shared memory, when a post-commit
+                // invalidation could not be delivered because the server was
+                // unreachable. It has to live outside the store precisely
+                // because the store is what was unreachable — the whole point
+                // is to count the writes that never got here. Surfaced in INFO
+                // so the RESP and SQL views report one number, not two.
+                invalidations_lost,
                 stats.keys,
             ))
         }
@@ -629,7 +643,10 @@ pub fn dispatch(
             Reply::Array(Some(matched))
         }
 
-        _ => Reply::error(format!("ERR unknown command '{}'", String::from_utf8_lossy(&args[0]))),
+        _ => Reply::error(format!(
+            "ERR unknown command '{}'",
+            String::from_utf8_lossy(&args[0])
+        )),
     }
 }
 

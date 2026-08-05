@@ -21,6 +21,7 @@ pg_bench = ["dep:pgrx-bench"]
 [dependencies]
 mio = { version = "1.2.2", features = ["net", "os-poll"] }
 pgrx = "=0.19.2"
+resp-client = { path = "../resp-client" }
 resp-proto = { path = "../resp-proto" }
 resp-store = { path = "../resp-store" }
 

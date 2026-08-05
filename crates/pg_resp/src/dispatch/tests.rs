@@ -11,7 +11,7 @@ fn now() -> (SystemTime, Instant) {
 fn run(store: &mut Store, args: &[&str]) -> Reply {
     let (sys_now, mono_now) = now();
     let mut conn = ConnState::default();
-    dispatch(store, sys_now, mono_now, &av(args), &mut conn, None)
+    dispatch(store, sys_now, mono_now, &av(args), &mut conn, None, 0)
 }
 
 fn run_with_auth(
@@ -21,7 +21,7 @@ fn run_with_auth(
     args: &[&str],
 ) -> Reply {
     let (sys_now, mono_now) = now();
-    dispatch(store, sys_now, mono_now, &av(args), conn, password)
+    dispatch(store, sys_now, mono_now, &av(args), conn, password, 0)
 }
 
 #[test]
@@ -39,7 +39,10 @@ fn hello_bare_returns_resp2_array_not_error() {
 #[test]
 fn hello_2_returns_resp2_array_not_error() {
     let mut s = Store::new();
-    assert!(matches!(run(&mut s, &["HELLO", "2"]), Reply::Array(Some(_))));
+    assert!(matches!(
+        run(&mut s, &["HELLO", "2"]),
+        Reply::Array(Some(_))
+    ));
 }
 
 #[test]
@@ -359,7 +362,10 @@ fn scan_match_filters_by_glob_pattern() {
 #[test]
 fn client_setinfo_and_setname_are_ok_getname_is_empty_bulk() {
     let mut s = Store::new();
-    assert_eq!(run(&mut s, &["CLIENT", "SETINFO", "lib-name", "x"]), Reply::ok());
+    assert_eq!(
+        run(&mut s, &["CLIENT", "SETINFO", "lib-name", "x"]),
+        Reply::ok()
+    );
     assert_eq!(run(&mut s, &["CLIENT", "SETNAME", "conn1"]), Reply::ok());
     assert_eq!(run(&mut s, &["CLIENT", "GETNAME"]), Reply::bulk(""));
 }
@@ -369,7 +375,10 @@ fn command_stub_never_errors() {
     let mut s = Store::new();
     assert_eq!(run(&mut s, &["COMMAND"]), Reply::Array(Some(vec![])));
     assert_eq!(run(&mut s, &["COMMAND", "COUNT"]), Reply::Integer(0));
-    assert_eq!(run(&mut s, &["COMMAND", "DOCS"]), Reply::Array(Some(vec![])));
+    assert_eq!(
+        run(&mut s, &["COMMAND", "DOCS"]),
+        Reply::Array(Some(vec![]))
+    );
 }
 
 #[test]
@@ -455,7 +464,10 @@ fn setex_sets_value_and_ttl() {
 #[test]
 fn setex_zero_seconds_errors() {
     let mut s = Store::new();
-    assert!(matches!(run(&mut s, &["SETEX", "k", "0", "v"]), Reply::Error(_)));
+    assert!(matches!(
+        run(&mut s, &["SETEX", "k", "0", "v"]),
+        Reply::Error(_)
+    ));
 }
 
 #[test]
@@ -486,7 +498,10 @@ fn getex_with_no_options_leaves_ttl_untouched() {
 fn getex_persist_clears_ttl() {
     let mut s = Store::new();
     run(&mut s, &["SET", "k", "v", "EX", "10"]);
-    assert_eq!(run(&mut s, &["GETEX", "k", "PERSIST"]), Reply::bulk(&b"v"[..]));
+    assert_eq!(
+        run(&mut s, &["GETEX", "k", "PERSIST"]),
+        Reply::bulk(&b"v"[..])
+    );
     assert_eq!(run(&mut s, &["TTL", "k"]), Reply::Integer(-1));
 }
 
@@ -494,7 +509,10 @@ fn getex_persist_clears_ttl() {
 fn getex_ex_sets_new_ttl() {
     let mut s = Store::new();
     run(&mut s, &["SET", "k", "v"]);
-    assert_eq!(run(&mut s, &["GETEX", "k", "EX", "30"]), Reply::bulk(&b"v"[..]));
+    assert_eq!(
+        run(&mut s, &["GETEX", "k", "EX", "30"]),
+        Reply::bulk(&b"v"[..])
+    );
     assert_eq!(run(&mut s, &["TTL", "k"]), Reply::Integer(30));
 }
 
