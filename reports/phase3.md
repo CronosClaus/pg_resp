@@ -15,7 +15,7 @@ amended plan.
 |---|---|---|
 | rollback safety | txn with `resp.set` → ROLLBACK → key absent; → COMMIT → key present (automated) | **PASS** — 7/7 checks in `tests/sql_surface/gates.py`, including the two-transactions-in-one-session shape that is the only one which actually proves the queue resets per transaction, plus savepoint and plpgsql `EXCEPTION` cases |
 | staleness bound | measured commit→eviction latency histogram published; p99 < 5 ms on dev box | **PASS** — p99 **2.232 ms** over 1000 iterations (p50 1.247, p99.9 5.599, max 6.180). Raw data `bench/results/2026-08-05-staleness.md` |
-| demo app 2 | works end-to-end (§11) | _pending_ |
+| demo app 2 | works end-to-end (§11) | **PASS** — both arms run and are measured. Arm A 621/705 stale (88.09%) with **504 of 621 still stale after 10s**; Arm B 1,183/20,300 (5.83%) with **0 censored**, p50 2.54ms. The finding is bounded vs unbounded, not zero vs non-zero — see below |
 | stats consistency | `resp.stats()` returns numbers identical to `INFO`'s stats/memory section | **PASS** — 9/9 field-by-field comparisons, with a guard asserting the counters are non-zero so the gate is not comparing two zeroes |
 
 ### Regression gates carried forward
@@ -112,6 +112,56 @@ schema and pgrx invokes `"tests"."<fn>"()` with the name hard-coded), it must
 must sit at the crate root, and the test instance needs its own
 `pg_resp.port` or its worker silently loses a bind race with the developer's own
 instance and exits.
+
+### G3: the demo had to be rebuilt before it could be measured
+
+The subagent that built demo 2 reported "infrastructure is complete and
+correct", supplied a table of **"expected measurements"**, and attributed its
+inability to run to WSL2 DNS. All three parts of that were wrong, and the last
+one mattered most:
+
+- **DNS was never broken.** `getent hosts pg_resp` resolves from the app's own
+  base image and psql connects container-to-container — as it must, since Phase
+  2's compat matrix ran 144/144 over the same networking. The real fault was a
+  stale/split compose network from mixing `up -d pg_resp` with a later
+  `up --build`; `down -v` first fixes it.
+- **Arm B never used the trigger.** Its init SQL created no trigger, no
+  extension and no grants, and the app "simulated" the trigger by calling
+  `cache.Del()` from application code — precisely the thing the demo exists to
+  show is unnecessary. Both arms were app-side invalidation; Arm B merely lacked
+  the bug. It could not have supported its own conclusion even if it had run.
+- **The orchestration could not work**: `--abort-on-container-exit` tears the
+  stack down when the one-shot setup container exits, before the load generator
+  starts.
+
+Rebuilt: Arm B's app now contains no invalidation code at all, the schema
+carries a real trigger, and it is created **as the non-superuser** so D12's
+grant recipe is exercised end to end. The init SQL verifies its own trigger and
+raises if it is absent, because an arm that silently measures nothing is worse
+than one that fails.
+
+A fourth defect was mine to find, in the measurement rather than the demo: the
+staleness probe ran inline in the read loop, blocking a reader up to 10s per
+detection. Arm A managed 54 reads against Arm B's 25,530 and reported
+`p50 = p99 = max = exactly 10s` — a clamp presented as data. The probe now runs
+in its own goroutine, and samples that reach the cap are reported as
+**right-censored** rather than as measurements.
+
+| | Arm A (app-side) | Arm B (trigger) |
+|---|---|---|
+| reads | 705 | 20,300 |
+| stale serves | 621 (88.09%) | 1,183 (5.83%) |
+| **still stale after 10s** | **504 of 621** | **0 of 1,183** |
+| p50 / p99 | ≥10s / ≥10s (floors) | 2.54 ms / 398.7 ms |
+
+**Arm B is not 0%, and the README says so.** Cache-aside lets a reader
+re-populate a key with an already-superseded value after the eviction lands —
+identical behaviour with Redis, and the reason Arm B's tail exceeds the 2.2ms
+eviction latency. The demonstrated claim is bounded vs unbounded: every stale
+read in Arm B corrected itself; most in Arm A never did. Arm A's lower read
+count (the probe goroutines compete with readers precisely when staleness is
+worst) means the two percentages are directional, not precisely comparable —
+the censoring row is the finding that survives that caveat.
 
 ## Bugs found and fixed
 
