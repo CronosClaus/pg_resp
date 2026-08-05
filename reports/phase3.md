@@ -60,6 +60,14 @@ Design points worth carrying forward:
 
 ## Decisions
 
+New entries added to bible §12 this phase, one line each:
+
+- **D11** — the loopback client is its own PG-free crate (`crates/resp-client`), a fourth crate beyond bible §6's three.
+- **D12** — `resp.*` is revoked from `PUBLIC` at install; granting is explicit, and `EXECUTE` on `resp.evict()` is checked at `CREATE TRIGGER` time only.
+- **D13** — `invalidations_lost` lives in PG shared memory (one `PgAtomic<AtomicU64>`) because backends must record it exactly when the store is unreachable; D2 stands, the store stays local.
+
+Full text of each is in bible §12. Expanded rationale:
+
 - **D11** — `resp-client` as a fourth PG-free crate. Keeps `resp-proto` a pure
   fuzzable parser and puts every I/O edge case in a crate testable in seconds
   without Postgres. 22 tests, all against a real scripted `TcpListener`.
@@ -319,7 +327,68 @@ One deliverable had to be rebuilt rather than accepted: demo 2 arrived
 "complete and correct" with fabricated numbers and an Arm B that simulated the
 trigger in application code. It now uses a real trigger, created as a
 non-superuser, and reports measured results including the ones that are less
-flattering than the pitch.
+flattering than the pitch. That incident is the origin of **iron rule 7** in
+`CLAUDE.md`.
+
+**Single next action:** `/kickoff 4` (in a fresh session — `/clear` first), and
+begin with Phase 4 amendment 1: a `cargo clean` full local build, then GitHub
+Actions CI across PG 16/17/18 on a real `libclang-dev`, retiring the vendored
+`~/.cargo` libclang workaround.
+
+## Reproduce every number in this report
+
+Iron rule 7 applies to this report as much as to a subagent's: each figure above
+has a committed artifact and a command that regenerates it. A fresh session can
+re-verify the whole phase from here.
+
+Environment note that will otherwise cost 20 minutes: if psql reports
+`connection to server on socket "/tmp/.s.PGSQL.28818" failed` while the server is
+plainly running, the instance was started by `cargo pgrx start`/`test`, which
+sets `unix_socket_directories=~/.pgrx`. Pass `--pg-host ~/.pgrx`. All harnesses
+accept it.
+
+```bash
+PGBIN=~/.pgrx/18.4/pgrx-install/bin      # instance on :28818, RESP on :6379
+PWFLAG="--resp-password secret123"        # omit if pg_resp.password is unset
+
+# G1 + G4 + semantics + trigger + D12 (40 checks)
+python3 tests/sql_surface/gates.py --psql $PGBIN/psql --pg-port 28818 \
+    --pg-host ~/.pgrx $PWFLAG
+
+# G2 staleness histogram  -> bench/results/2026-08-05-staleness.md (+ .json)
+python3 bench/harness/staleness.py --psql $PGBIN/psql --pg-port 28818 \
+    --pg-host ~/.pgrx --resp-password secret123 --iterations 1000 \
+    --out bench/results/2026-08-05-staleness.md
+
+# G3 demo 2, both arms -> numbers in demos/2-trigger-invalidation/README.md
+cd demos/2-trigger-invalidation
+for arm in app trigger; do
+  docker compose down -v
+  INVALIDATION=$arm docker compose up -d --build pg_resp setup app
+  INVALIDATION=$arm docker compose run --rm load-gen
+done; cd -
+
+# R1 fast loop (119) / slow loop (76, incl. 3 pg_tests)
+cargo test -p resp-proto -p resp-store -p resp-client
+cargo pgrx test pg18
+
+# R2 compat matrix (144)              R3 differential (15,621 cmds, 0 mismatch)
+make compat                           # tests/differential/: mechanics_selftest.py,
+                                      # generate_and_compare.py (seeds 42/123/999),
+                                      # nasty_deck.py
+
+# R4 lifecycle table + the two Phase 3 additions
+python3 tests/lifecycle/lifecycle.py --pgbin $PGBIN --datadir ~/.pgrx/data-18 \
+    --pg-port 28818 --pg-host ~/.pgrx --password secret123
+python3 tests/lifecycle/slow_reader.py --password secret123
+# panic_policy.py needs a debug_panic build; see tests/lifecycle/README.md
+```
+
+Committed artifacts: `bench/results/ENV.md` (environment + the reconstructed
+Phase 2 soak invocation + the measured 397,398 ops/sec ceiling),
+`bench/results/2026-08-05-staleness.md` / `.json`,
+`bench/results/2026-08-05-sat-*.txt` (the saturation sweep),
+`bench/results/2026-08-05-soak.txt` + `soak-rss.log` (Phase 2, untouched).
 
 ## Open threads for Phase 4
 
