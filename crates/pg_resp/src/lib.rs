@@ -42,6 +42,22 @@ static BIND_ADDRESS: GucSetting<Option<CString>> =
     GucSetting::<Option<CString>>::new(Some(c"127.0.0.1"));
 static PORT: GucSetting<i32> = GucSetting::<i32>::new(6379);
 
+/// `log!()` (and any other pgrx/PG-FFI-backed macro) is forbidden off the
+/// main bgworker thread — pgrx enforces this at *runtime* and panics on
+/// violation, it doesn't just silently misbehave. Found the hard way: the
+/// panic-fence handlers below originally used `log!()` inside their
+/// `catch_unwind` arms, on this (server) thread — pgrx's own guard then
+/// panicked on *that* call ("postgres FFI may not be called from multiple
+/// threads"), a second, unfenced panic that escaped straight past both
+/// fences and killed the thread anyway, defeating the whole point. Plain
+/// `eprintln!` is safe from any thread, and PG's log collector captures a
+/// bgworker's stderr into the same server log anyway, so nothing is lost.
+macro_rules! server_log {
+    ($($arg:tt)*) => {
+        eprintln!("pg_resp[server thread]: {}", format!($($arg)*))
+    };
+}
+
 #[allow(non_snake_case)]
 #[pg_guard]
 pub extern "C-unwind" fn _PG_init() {
@@ -101,8 +117,35 @@ pub extern "C-unwind" fn background_worker_main(_arg: pg_sys::Datum) {
         .set_nonblocking(true)
         .expect("failed to set listener non-blocking");
 
+    // Panic fence (outer, defense-in-depth): std::thread already catches an
+    // unwinding panic at the OS-thread boundary — the process doesn't crash
+    // — but empirically (see pgrx-patterns skill §8.8 / reports/phase2.md)
+    // that alone means the *entire* server thread dies silently: every
+    // connection it owned resets, no new connection is ever accepted again,
+    // yet the bgworker process keeps running and Postgres itself stays
+    // completely healthy. That combination — RESP service permanently and
+    // silently dead, everything else reporting green — is worse than a
+    // loud crash. This explicit catch_unwind is belt-and-suspenders around
+    // the real fix (the per-connection fence in `server_loop` below, which
+    // should make reaching this outer boundary essentially unreachable in
+    // practice); it exists so a panic anywhere else in the loop (e.g. in
+    // `accept()` handling) is at least logged loudly instead of vanishing.
     let server_thread = std::thread::spawn(move || {
-        server_loop(listener, server_shutdown);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            server_loop(listener, server_shutdown);
+        }));
+        if let Err(payload) = result {
+            let msg = payload
+                .downcast_ref::<&str>()
+                .map(|s| s.to_string())
+                .or_else(|| payload.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "<non-string panic payload>".to_string());
+            server_log!(
+                "FATAL — top-level loop panicked despite per-connection fencing: {msg}. \
+                 The RESP service is now dead until the next bgworker restart; \
+                 Postgres itself is unaffected."
+            );
+        }
     });
 
     // Main (registered) thread: PG lifecycle only — never touches the socket
@@ -115,8 +158,13 @@ pub extern "C-unwind" fn background_worker_main(_arg: pg_sys::Datum) {
 
     log!("pg_resp: SIGTERM/shutdown latch fired, signaling server thread");
     shutdown.store(true, Ordering::SeqCst);
-    server_thread.join().expect("server thread panicked");
-    log!("pg_resp: server thread joined, exiting cleanly");
+    // Use match, not .expect(): if the server thread already died (panic
+    // caught above), .join() returns Err, and .expect() would itself panic
+    // here — on the PG-registered main thread this time, during shutdown.
+    if server_thread.join().is_err() {
+        log!("pg_resp: server thread had already exited abnormally; shutdown continues anyway");
+    }
+    log!("pg_resp: exiting cleanly");
 }
 
 struct Conn {
@@ -132,7 +180,7 @@ fn server_loop(listener: TcpListener, shutdown: Arc<AtomicBool>) {
     let mut poll = match Poll::new() {
         Ok(p) => p,
         Err(e) => {
-            log!("pg_resp: mio::Poll::new failed: {e}, exiting server thread");
+            server_log!("mio::Poll::new failed: {e}, exiting server thread");
             return;
         }
     };
@@ -140,7 +188,7 @@ fn server_loop(listener: TcpListener, shutdown: Arc<AtomicBool>) {
         poll.registry()
             .register(&mut mio_listener, LISTENER_TOKEN, Interest::READABLE)
     {
-        log!("pg_resp: failed to register listener with poll: {e}, exiting server thread");
+        server_log!("failed to register listener with poll: {e}, exiting server thread");
         return;
     }
 
@@ -151,7 +199,7 @@ fn server_loop(listener: TcpListener, shutdown: Arc<AtomicBool>) {
     while !shutdown.load(Ordering::SeqCst) {
         if let Err(e) = poll.poll(&mut events, Some(SHUTDOWN_CHECK_INTERVAL)) {
             if e.kind() != std::io::ErrorKind::Interrupted {
-                log!("pg_resp: poll error: {e}");
+                server_log!("poll error: {e}");
             }
             continue;
         }
@@ -180,15 +228,39 @@ fn server_loop(listener: TcpListener, shutdown: Arc<AtomicBool>) {
                         }
                         Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
                         Err(e) => {
-                            log!("pg_resp: accept error: {e}");
+                            server_log!("accept error: {e}");
                             break;
                         }
                     }
                 }
             } else {
                 let token = event.token();
+                // Primary panic fence (pgrx-patterns skill §8.8): D4's
+                // single-threaded model means this one thread serves every
+                // connection. Without this, a panic dispatching one bad
+                // command on one connection unwinds straight out of the
+                // thread's entry point and kills the *entire* server thread
+                // — every other connection reset, no new connection ever
+                // accepted again, silently, while Postgres itself and even
+                // the bgworker process stay completely healthy (confirmed
+                // by deliberately triggering one). Catching it here instead
+                // means only this one connection is lost; the thread, the
+                // listener, and every other connection keep running.
                 let keep = match conns.get_mut(&token) {
-                    Some(conn) => service_connection(conn, &mut store),
+                    Some(conn) => {
+                        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            service_connection(conn, &mut store)
+                        })) {
+                            Ok(keep) => keep,
+                            Err(_) => {
+                                server_log!(
+                                    "connection handler panicked; dropping only \
+                                     this connection, server thread continues"
+                                );
+                                false
+                            }
+                        }
+                    }
                     None => false,
                 };
                 if !keep {
