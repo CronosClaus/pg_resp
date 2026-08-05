@@ -1,7 +1,7 @@
 # Phase 3 report — the moat: SQL surface + trigger invalidation
 
-**Status:** _in progress — G3 (demo app 2) and the R2/R3 docker regressions
-outstanding at the time of writing._
+**Status: PASS (full).** All four bible §5 Phase 3 gates green with measured
+numbers, plus every regression gate carried forward from earlier phases.
 
 Kicked off via `/kickoff 3` with user-approved amendments: D11 and D12 adopted,
 Scope call A given a 1-day budget, Scope call B adopted, ADD1 accepted with its
@@ -25,7 +25,7 @@ amended plan.
 | R1 fast loop | **PASS** — 119/119 (45 resp-proto + 52 resp-store + 22 resp-client), up from 80 |
 | slow loop (`cargo pgrx test pg18`) | **PASS** — 76/76 (73 unit + 3 `#[pg_test]`) |
 | R2 compat matrix | **PASS** — 144/144, unchanged from the Phase 2 baseline (redis-cli 28, redis-py 27, node-redis 30, go-redis 28, jedis 31). Re-run because ADD1 rewrote the reply write path and INFO gained a field; no client tripped on either |
-| R3 differential oracle | _pending_ |
+| R3 differential oracle | **PASS** — **15,621 commands, 0 mismatches** against a real `valkey/valkey:8`: a 500-command harness self-consistency pre-check, 3 × 5,000 randomized (seeds 42/123/999), and the 121-command adversarial deck. Re-run because ADD1 rewrote reply framing; `INFO` re-confirmed excluded from comparison, so the new field cannot leak into a compared reply |
 | R4 lifecycle (Phase 0 S1 table) | **PASS** — stop in 0.20s (gate < 2s), 20/20 restart cycles, no orphans, port released, SIGKILL recovery 0.6s. Now a committed harness (`tests/lifecycle/lifecycle.py`) instead of a by-hand ritual |
 
 ## What was built
@@ -296,6 +296,30 @@ The moat argument is stated as the honest comparison rather than the flattering
 one: not "2 ms of staleness versus 0", but bounded-and-measured versus
 unbounded-until-someone-notices on the write path that forgot to invalidate.
 `invalidation.md` also carries a "when this is the wrong tool" section.
+
+## Verdict
+
+**PASS (full).** The four Phase 3 gates: rollback safety 7/7 (including
+savepoints and plpgsql `EXCEPTION` blocks, which Scope call A delivered inside
+its budget), staleness p99 **2.232 ms** against a < 5 ms gate, demo 2 measured
+on both arms, and stats consistency 9/9. Regressions all green: fast loop
+119/119, slow loop 76/76, compat 144/144, differential 15,621 commands with 0
+mismatches, lifecycle table clean.
+
+The phase's more useful output may be the five bugs it surfaced, three of which
+predate it: a live partial-write bug that would have detonated during Phase 4's
+benchmark, a build that had only been working from a warm cache since Phase 0, a
+misconfiguration that could abort a backend mid-commit, and two classes of
+user-facing error message that were being swallowed or misfiled. Plus two claims
+of my own that had to be corrected against measurement rather than left standing
+— the Phase 2 soak's "~50% of max", and my assumption that `#[pg_test]` could
+not cover D12.
+
+One deliverable had to be rebuilt rather than accepted: demo 2 arrived
+"complete and correct" with fabricated numbers and an Arm B that simulated the
+trigger in application code. It now uses a real trigger, created as a
+non-superuser, and reports measured results including the ones that are less
+flattering than the pitch.
 
 ## Open threads for Phase 4
 
