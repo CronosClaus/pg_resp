@@ -34,9 +34,152 @@ would be a lie. (Discovered by testing in Phase 2; recorded in the
 
 This memory is **outside** `shared_buffers` and outside Postgres's own
 accounting. When capacity planning, `pg_resp.max_memory` competes for the same
-RAM as `shared_buffers`; size them together.
+RAM as `shared_buffers`; size them together — worked below.
+
+## Capacity planning: the 8 GB box, worked
+
+Adding pg_resp to a database server creates a **third tenant** competing for the
+same RAM, and unlike the other two it is invisible to every Postgres memory
+view. `pg_stat_*`, `SHOW shared_buffers`, and `EXPLAIN (ANALYZE, BUFFERS)` will
+never mention it. If you size the database as though the cache were free, the
+kernel will eventually make the decision for you.
+
+The three tenants:
+
+| tenant | what it holds | who accounts for it |
+|---|---|---|
+| `shared_buffers` | PostgreSQL's page cache of its own relations | PostgreSQL |
+| **`pg_resp.max_memory`** | **the RESP cache, in the worker's private heap (D2)** | **nobody — this page is the accounting** |
+| OS page cache | everything read from disk, including PG files not in `shared_buffers` | the kernel, opportunistically |
+
+### A concrete split on 8 GB
+
+Assume 8192 MB total, PostgreSQL 18, `max_connections = 100`, and a cache
+holding roughly 500k entries of ~1 KB.
+
+| allocation | MB | reasoning |
+|---|---|---|
+| OS, kernel, sshd, monitoring | 512 | leave it; the box is not only a database |
+| `shared_buffers` | 2048 | the conventional 25% of RAM |
+| worst-case backend work memory | 400 | `100 × work_mem(4MB)`, and see the warning below |
+| **`pg_resp.max_memory`** | **1024** | the cache budget you configure |
+| **pg_resp actual RSS** | **~1140** | **what the process really costs — see the multiplier below** |
+| left for OS page cache | ~4100 | headroom, and the shock absorber for everything above |
+
+The line that matters is the difference between the fourth and fifth rows.
+
+### `max_memory` is a budget for *accounted* bytes, not a promise about RSS
+
+`pg_resp.max_memory` bounds `key.len() + value.len() + 96` summed over entries.
+Two things live outside that sum:
+
+1. **The 96-byte constant is deliberately conservative, and it is a single
+   number standing in for a range.** It was measured twice on a live worker, by
+   `VmRSS` delta over 100k-entry loads: the first batch gave ~71 bytes of
+   overhead per entry, the second ~134. The two disagree because Rust's
+   `HashMap` doubles its bucket array, so a load that crosses a resize
+   threshold pays for capacity it has not filled yet. 96 sits between them,
+   chosen to over-estimate rather than under-estimate. **Near a resize
+   boundary, real overhead can exceed the accounted figure by ~40 bytes per
+   entry** — 40 MB unaccounted at 1M entries.
+2. **Allocator and process overhead.** The worker is a process: stacks, the
+   `mio` poll state, read and write buffers (bounded by
+   `MAX_PENDING_WRITE_BYTES`, 64 MB per connection with bytes owed), jemalloc's
+   own arenas and fragmentation.
+
+Measured on the Phase 2 soak — 30 minutes, 1 KB values, `max_memory = 256MB`,
+store warm and at its budget — the worker's `VmRSS` plateaued at **291,908 kB
+(285 MiB)** against a 256 MiB budget:
+
+```
+RSS ÷ max_memory  =  285 MiB / 256 MiB  =  ~1.11
+```
+
+**Plan on RSS ≈ 1.15 × `pg_resp.max_memory`**, and treat that as a floor rather
+than a guarantee. It is one measurement on one workload, and the ratio is
+workload-dependent in a predictable direction: with 1 KB values the 96-byte
+constant is ~9% of an entry, but with 64-byte values it is larger than the value
+itself, so a cache of small entries carries proportionally far more overhead per
+accounted byte. Raw data: `bench/results/soak-rss.log`,
+`bench/results/ENV.md` §5.
+
+### The OOM arithmetic rule
+
+Apply this to your own box before enabling the extension:
+
+```
+  shared_buffers
++ (max_connections × work_mem)          # worst case; see the caveat
++ maintenance_work_mem × autovacuum_max_workers
++ (pg_resp.max_memory × 1.15)           # the measured multiplier above
++ 512 MB                                # OS and everything that is not PG
+─────────────────────────────────────
+= committed RAM;  keep this ≤ 75% of physical RAM
+```
+
+The remaining 25% is not slack. It is the OS page cache, which is what makes
+the *misses* fast — and a cache exists to be missed sometimes.
+
+Two ways this arithmetic understates reality, both worth knowing:
+
+- **`work_mem` is per sort or hash node, not per connection.** A single complex
+  query with several sorts can multiply its own allocation. `max_connections ×
+  work_mem` is the conventional estimate, not a bound.
+- **There is no `pg_resp` equivalent of `shared_buffers`' hard cap for the
+  process as a whole.** `max_memory` caps the accounted cache contents; it does
+  not cap the process. If you need a hard ceiling, set one outside the database
+  — a cgroup memory limit on the postmaster's slice — and remember that a cgroup
+  OOM kill of the worker is failure mode 1 below, i.e. cluster-wide crash
+  recovery.
+
+**If in doubt, start small.** `pg_resp.max_memory = 256MB` is the default for a
+reason: an undersized cache costs hit rate, which is measurable and recoverable.
+An oversized one costs an OOM kill, which is neither.
 
 ## Caveats
+
+### Cold start: the cache is empty after every restart, and misses arrive all at once
+
+This is the first caveat because it is the one most likely to surprise someone
+in production, and it follows directly from ephemerality by design (bible D5).
+
+pg_resp has no persistence. A worker restart, a PostgreSQL restart, a failover,
+a `pg_ctl reload` that happens to cycle the worker, a panic-triggered restart
+(measured at 2.5 s below) — every one of them leaves the cache **completely
+empty**. The application does not know that. It carries on issuing the same read
+volume it always did, and every single one of those reads is now a miss that
+falls through to PostgreSQL simultaneously.
+
+That is a **thundering herd on your database**, and it arrives precisely when the
+database has just restarted or is already under stress. The steady-state
+arithmetic makes the size of it obvious: a cache serving 10,000 reads/sec at a
+95% hit rate is shielding PostgreSQL from 9,500 queries/sec. After a restart,
+PostgreSQL receives all 10,000 — a 20× step change in load, from a component
+whose entire job was to prevent exactly that.
+
+Redis has the same exposure and mitigates it with persistence (RDB/AOF), which
+pg_resp deliberately does not have (D5 — persistence is where scope and danger
+live for a v0.1 cache). So the mitigations here are architectural rather than
+configurable:
+
+- **Assume it will happen and load-test for it.** Measure your application with
+  the cache emptied under production read volume. If PostgreSQL cannot survive
+  that, the cache is load-bearing infrastructure and needs to be treated as
+  such, whichever cache you use.
+- **Stagger re-population where the application allows it.** A jittered TTL on
+  write (rather than a single fixed one) prevents a *second* herd later, when a
+  whole generation of entries written during recovery expires together.
+- **Prefer request coalescing in the application** for the hottest keys — one
+  in-flight fill per key, others wait on it. This is worth more than any cache
+  setting during a cold start.
+- **A cold cache is fast to detect**: `resp.stats()` or `INFO` shows `keys` near
+  zero with a miss rate near 100%. That is a better alert signal than
+  process liveness, which stays green throughout (see the blast-radius section).
+
+**When this makes pg_resp the wrong tool:** if your workload cannot tolerate an
+empty cache and you have no way to shield the database, you want a cache with
+persistence, and that is Redis or Valkey today. `docs/invalidation.md` has the
+companion "when this is the wrong tool" discussion for the trigger path.
 
 ### Security: default bind is localhost-only, on purpose
 

@@ -52,6 +52,7 @@ import json
 import os
 import re
 import shlex
+import socket
 import subprocess
 import sys
 from dataclasses import asdict, dataclass
@@ -122,12 +123,30 @@ class Result:
     rerun: str
 
 
+def rel(p: Path) -> str:
+    """Repo-relative when possible, absolute otherwise (--out-dir may be a
+    scratch directory outside the tree during harness validation)."""
+    try:
+        return str(p.relative_to(REPO))
+    except ValueError:
+        return str(p)
+
+
 def run(cmd: list[str], **kw) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, text=True, **kw)
 
 
+
+
+def _resp_cmd(*parts: bytes) -> bytes:
+    out = b"*%d\r\n" % len(parts)
+    for p in parts:
+        out += b"$%d\r\n%s\r\n" % (len(p), p)
+    return out
+
+
 def verify_server_answers(args, cell: Cell) -> str:
-    """Prove the arm executes a real command before measuring it.
+    """Prove the arm executes a real command, over the path memtier will use.
 
     This is the generalisation of the NOAUTH lesson: the failure mode was not
     "we forgot a flag", it was "nothing checked that the server was doing the
@@ -135,38 +154,66 @@ def verify_server_answers(args, cell: Cell) -> str:
     cheapest possible proof, and it fails loudly for a wrong password, a wrong
     port, a server that is up but not serving, and a store that silently
     discards writes.
+
+    **It deliberately uses a raw socket from this process rather than a
+    redis-cli**, because the probe must traverse exactly the network path
+    memtier_benchmark will traverse. An earlier version shelled out to a
+    containerised redis-cli and was therefore able to "verify" an arm that
+    memtier could not reach at all: under WSL2 with Docker Desktop,
+    `--network host` places a container in the Docker VM's network namespace,
+    not the WSL2 distro's, so a containerised client and a native memtier see
+    two different sets of reachable servers. A probe that does not use the
+    measurement path is not a probe.
     """
-    probe_key = f"pg_resp_bench_probe_{cell.workload_id}"
-    probe_val = "probe-ok"
-    cli = [
-        "redis-cli",
-        "-h",
-        args.host,
-        "-p",
-        str(args.port),
-        "--no-raw",
-    ]
-    if args.password:
-        cli += ["-a", args.password]
+    probe_key = f"pg_resp_bench_probe_{cell.workload_id}".encode()
+    probe_val = b"probe-ok"
 
-    setp = run(cli + ["SET", probe_key, probe_val])
-    getp = run(cli + ["GET", probe_key])
-    combined = (setp.stdout + setp.stderr + getp.stdout + getp.stderr).strip()
+    try:
+        sock = socket.create_connection((args.host, args.port), timeout=5)
+    except OSError as e:
+        raise Void(
+            f"cannot reach {args.host}:{args.port} from this process "
+            f"({type(e).__name__}: {e}). memtier runs from here, so if this "
+            "connection fails the benchmark cannot measure this arm — check "
+            "whether the server is in a different network namespace (see the "
+            "docstring above)."
+        ) from e
 
-    if "NOAUTH" in combined or "WRONGPASS" in combined:
+    with sock:
+        sock.settimeout(5)
+        payload = b""
+        if args.password:
+            payload += _resp_cmd(b"AUTH", args.password.encode())
+        payload += _resp_cmd(b"SET", probe_key, probe_val)
+        payload += _resp_cmd(b"GET", probe_key)
+        payload += _resp_cmd(b"DEL", probe_key)
+        sock.sendall(payload)
+
+        buf = b""
+        deadline_reads = 0
+        while probe_val not in buf and deadline_reads < 20:
+            try:
+                chunk = sock.recv(4096)
+            except socket.timeout:
+                break
+            if not chunk:
+                break
+            buf += chunk
+            deadline_reads += 1
+
+    text = buf.decode("utf-8", "replace")
+    if "NOAUTH" in text or "WRONGPASS" in text:
         raise Void(
-            f"pre-run probe was refused by the server: {combined!r}. "
-            "The password is wrong or missing — this is exactly the condition "
-            "that produced ENV.md §4's three void runs."
+            f"pre-run probe was refused by the server: {text.strip()!r}. The "
+            "password is wrong or missing — exactly the condition that produced "
+            "ENV.md §4's three void runs."
         )
-    if probe_val not in getp.stdout:
+    if probe_val not in buf:
         raise Void(
-            f"pre-run probe did not read back what it wrote (SET={setp.stdout.strip()!r} "
-            f"GET={getp.stdout.strip()!r}). The arm is not serving; refusing to "
-            "measure it."
+            f"pre-run probe did not read back what it wrote (got {text.strip()!r}). "
+            "The arm is not serving; refusing to measure it."
         )
-    run(cli + ["DEL", probe_key])
-    return f"SET/GET probe OK ({probe_val!r} read back)"
+    return f"SET/GET probe OK over the measurement path ({probe_val!r} read back)"
 
 
 def password_from_pg(args) -> str | None:
@@ -219,6 +266,38 @@ def build_memtier_argv(args, cell: Cell) -> list[str]:
     return argv
 
 
+def build_warmup_argv(args, cell: Cell) -> list[str]:
+    """SET-only pass over the same keyspace, to populate before measuring.
+
+    ENV.md §4's valid saturation runs were taken "against a store already warm
+    and at its 256MB budget" and landed at ~37% hit rate; a run against a cold
+    store reports a hit rate near zero, and a GET miss returns 5 bytes where a
+    hit returns the value. Throughput is therefore not comparable between a
+    cold and a warm arm, in a direction that flatters whichever arm was colder.
+    Equal warm-up per arm is what makes a cell a comparison rather than a
+    coincidence.
+    """
+    argv = [
+        str(args.memtier),
+        f"--host={args.host}",
+        f"--port={args.port}",
+        "--protocol=redis",
+        "--ratio=1:0",  # SET only
+        f"--data-size={cell.data_size}",
+        "--key-pattern=G:G",
+        "--key-maximum=1000000",
+        f"--pipeline={cell.pipeline}",
+        f"--clients={cell.clients}",
+        f"--threads={cell.threads}",
+        f"--test-time={args.warmup_time}",
+        "--run-count=1",
+        "--hide-histogram",
+    ]
+    if args.password:
+        argv.append(f"--authenticate={args.password}")
+    return argv
+
+
 STATS_ROW = re.compile(
     r"^Totals\s+([\d.]+)\s+([\d.]+|---)\s+([\d.]+|---)\s+"
     r"([\d.]+|---)\s+([\d.]+|---)\s+([\d.]+|---)\s+([\d.]+|---)\s+([\d.]+|---)"
@@ -257,6 +336,15 @@ def main() -> int:
     ap.add_argument("--clients", type=int, required=True)
     ap.add_argument("--threads", type=int, required=True)
     ap.add_argument("--test-time", type=int, default=60)
+    ap.add_argument(
+        "--warmup-time",
+        type=int,
+        default=0,
+        help="seconds of SET-only load to populate the keyspace before the "
+        "measured run. Cross-arm comparisons REQUIRE an equal, non-zero value: "
+        "a cold store returns misses (5-byte replies) where a warm one returns "
+        "values, so a cold arm and a warm arm are not measuring the same work.",
+    )
     ap.add_argument("--run-count", type=int, default=3)
     ap.add_argument(
         "--env-class",
@@ -319,6 +407,21 @@ def main() -> int:
 
     started = datetime.now(timezone.utc).isoformat()
     output = ""
+    warmup_argv: list[str] = []
+    if void_reason is None and args.warmup_time > 0:
+        warmup_argv = build_warmup_argv(args, cell)
+        wproc = run(warmup_argv)
+        if wproc.returncode != 0:
+            void_reason = f"warm-up pass exited {wproc.returncode}"
+        else:
+            verdict.append(
+                f"warm-up: {args.warmup_time}s SET-only over the same keyspace"
+            )
+    elif void_reason is None:
+        verdict.append(
+            "warm-up: NONE (--warmup-time 0) — valid for harness validation, "
+            "NOT valid for a cross-arm comparison"
+        )
     if void_reason is None:
         proc = run(argv)
         output = proc.stdout + proc.stderr
@@ -359,15 +462,23 @@ def main() -> int:
         f"workload       : data-size={cell.data_size} pipeline={cell.pipeline} "
         f"clients={cell.clients} threads={cell.threads} "
         f"=> {cell.total_conns} total connections",
-        f"protocol       : 3 runs x {cell.test_time}s, ratio 1:10 SET:GET, "
-        "key-pattern G:G, key-maximum 1000000 (bible §10)",
+        f"protocol       : {cell.run_count} run(s) x {cell.test_time}s, ratio 1:10 "
+        "SET:GET, key-pattern G:G, key-maximum 1000000 (bible §10)",
         f"started (UTC)  : {started}",
         f"server note    : {args.server_note or '(none given)'}",
         f"env class      : {args.env_class} — {ENV_CLASSES[args.env_class]}",
         f"publishable    : {'YES' if publishable else 'NO'}",
         "",
+        "credential note: any --authenticate value below is recorded verbatim on",
+        "purpose — iron rule 7 requires a command line that actually reruns. Per the",
+        "Phase 4 standing rule the benchmark box uses a freshly generated throwaway",
+        "password and is destroyed after the sweep; never reuse it anywhere.",
+        "",
         "memtier invocation (verbatim — this line is the contract, iron rule 7):",
         "  " + " ".join(shlex.quote(a) for a in argv),
+        "",
+        "warm-up invocation (verbatim):",
+        "  " + (" ".join(shlex.quote(a) for a in warmup_argv) if warmup_argv else "(none — see checks below)"),
         "",
         "regenerate this exact file with:",
         "  " + rerun,
@@ -391,7 +502,7 @@ def main() -> int:
 
     if void_reason:
         print(f"VOID  {cell.arm} {cell.workload_id}: {void_reason}", file=sys.stderr)
-        print(f"raw (retained): {raw_path.relative_to(REPO)}", file=sys.stderr)
+        print(f"raw (retained): {rel(raw_path)}", file=sys.stderr)
         return 2
 
     assert stats is not None
@@ -410,7 +521,7 @@ def main() -> int:
         hits_sec=stats["hits_sec"],
         misses_sec=stats["misses_sec"],
         hit_rate_pct=(stats["hits_sec"] / total * 100.0) if total else 0.0,
-        raw_file=str(raw_path.relative_to(REPO)),
+        raw_file=rel(raw_path),
         rerun=rerun,
     )
 
@@ -425,7 +536,7 @@ def main() -> int:
         f"hit {result.hit_rate_pct:5.2f}%{tag}"
     )
     print(f"raw:  {result.raw_file}")
-    print(f"json: {json_path.relative_to(REPO)}")
+    print(f"json: {rel(json_path)}")
     return 0
 
 
