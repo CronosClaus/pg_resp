@@ -952,3 +952,156 @@ the measurement cannot distinguish the servers at that payload size, which is a
 fact about the bench and not a property of pg_resp. Payload sizes below the
 ceiling (64 B) and the K-pg comparison (an order of magnitude below it) are where
 the arms are actually distinguishable.
+
+## 22. The 41 ms transport artefact — root-caused, and the exclusion exhibit
+
+The first Stage B attempt stopped at 12 of 108 cells because a 16 KB unpipelined
+warm-up was running at **~24 SETs/s while the server used 0.2% CPU**. This section
+is the record, and its central table is published in methodology as the
+**exclusion exhibit** — never as cache numbers for any server.
+
+### The four-way control: it is not any server
+
+16 KB, pipeline 1, one connection, SET-only, **empty store**:
+
+| arm | ops/s | avg latency |
+|---|---|---|
+| P-opt (pg_resp) | 24.55 | 40.76 ms |
+| R-opt (Redis) | 24.37 | 41.04 ms |
+| V-opt (Valkey) | 24.38 | 41.03 ms |
+| K-pg (Redka) | 23.87 | 41.88 ms |
+
+Four independent implementations, one number. **pg_resp is marginally the fastest
+of the four**, which is exactly why this table is an honesty artefact rather than
+a result: the correct reading is that nothing here is measuring a server.
+
+### A diagnosis that was wrong, recorded because it was persuasive
+
+The first conclusion was a pg_resp bug. Operations arriving ~41 ms apart with an
+idle server is the textbook Nagle/delayed-ACK signature, and pg_resp genuinely
+did **not** set `TCP_NODELAY` on accepted sockets — only `resp-client` did, while
+Redis and Valkey set it on every connection. The story fit the evidence.
+
+It is refuted by the table above: **Redis sets `TCP_NODELAY` and collapses
+identically.** memtier also sets it on its own sockets
+(`shard_connection.cpp:424` at the pinned commit), so neither end of the
+connection has Nagle enabled at all. The option was fixed anyway as hygiene
+(commit `5e725fb`) — it belongs on a cache's sockets — but it is **not** the cause
+of this and must never be reported as such.
+
+### The actual cause, and a 44-byte boundary
+
+`net.ipv4.tcp_wmem` on this box is `4096 16384 4194304`, so the **default socket
+send buffer is 16,384 bytes**. A 16 KB SET is 16,384 bytes of value *plus* RESP
+framing and a key — roughly 16,430 bytes. The request therefore does not fit in
+the send buffer, the write completes partially, and the remainder cannot be sent
+until the receiver's ACK frees space. Nothing is waiting to be sent back, so the
+delayed-ACK timer holds that ACK for ~40 ms. Every operation.
+
+Predicted, then measured. The collapse should begin the moment value + framing
+crosses 16,384 bytes:
+
+| data-size | ops/s | avg latency |
+|---|---|---|
+| 4,096 | 22,943 | 0.043 ms |
+| 8,192 | 20,094 | 0.049 ms |
+| 15,000 | 21,294 | 0.048 ms |
+| 16,000 | 23,268 | 0.043 ms |
+| 16,300 | 22,739 | 0.044 ms |
+| **16,340** | **25,268** | **0.038 ms** |
+| **16,384** | **24.6** | **40.672 ms** |
+| 17,000 | 24.5 | 40.870 ms |
+| 32,768 | 24.6 | 40.637 ms |
+
+**A 44-byte increase costs three orders of magnitude.** No cache behaves that way;
+a send buffer does.
+
+### Latency invariant under a 64x concurrency change
+
+The strongest single piece of evidence, because no server-side bottleneck can
+produce it. 16 KB on pg_resp:
+
+| | pipeline 1 | pipeline 16 |
+|---|---|---|
+| 1 conn | 24.6 ops/s @ **40.711 ms** | 116,318 ops/s @ 0.137 ms |
+| 8 conns | 196.7 ops/s @ **40.680 ms** | 162,767 ops/s @ 0.784 ms |
+| 64 conns | 1,570.2 ops/s @ **40.738 ms** | 134,876 ops/s @ 7.586 ms |
+
+Per-operation latency does not move — 40.68 to 40.74 ms — while concurrency
+changes 64-fold, and throughput is *exactly* linear in connection count
+(24.6 x N). Each connection is a metronome ticking at the delayed-ACK timer. A
+saturated server would show latency rising with load; a timer shows this.
+
+Pipelining removes it entirely, which is consistent: with 16 requests in flight
+there is always more data queued and ACKs returning, so the buffer never sits
+empty waiting.
+
+### Why no fix was applied
+
+All three routes are closed inside the box, and the box is frozen as bootstrapped
+(§14):
+
+- **Raising `tcp_wmem`** requires root. `sudo` demands a password; the bench user
+  does not have it.
+- **memtier at the pinned commit exposes no send-buffer option** (no `SO_SNDBUF`,
+  no window flag). Patching it would mean deviating from `PINS.md`'s pinned
+  client, making our benchmark client non-standard and non-reproducible.
+- **`docker --sysctl` is refused under `--network host`**, because the setting
+  would alter the host's namespace rather than a container's.
+
+Running the client in its own network namespace would allow the sysctl but
+reintroduce NAT for the client on every arm — trading a documented artefact for an
+undocumented one.
+
+### Disposition
+
+**16 KB at pipeline 1 is excluded from the grid** (`grid.sh`'s `WORKLOADS`), and
+16 KB runs at pipeline 16 only. The exclusion is published with the tables above
+as its proof. The ~24 ops/s figures are **never** presented as measurements of any
+server, in any document, for any arm.
+
+Stated plainly for anyone re-running this: on a host with a larger default
+`tcp_wmem`, these cells would measure something real. On this one they measure a
+kernel timer.
+
+## 23. `P-def` at pipeline 16 with 64 connections is genuinely unstable
+
+Characterised deliberately rather than discovered later in a README's top rows.
+
+| cell | attempt 1 spread | attempt 2 spread | verdict |
+|---|---|---|---|
+| `P-def d1024-p16-c1` | 8.47% | within gate | **borderline** — fails the 8% gate sometimes |
+| `P-def d1024-p16-c64` | 27.23% | **27.66%** | **reproducibly unstable** |
+
+`d1024-p16-c64` is the highest-throughput 1 KB configuration (~440,000 ops/s) and
+it reproduces a ~27% run-to-run spread across two independent attempts. It is
+therefore **not publishable under the 8% criterion** (§12), and that is the
+correct outcome rather than a problem to tune away: it sits at ~9% hit rate with
+the store thrashing against its 256 MB cap under CLOCK-LRU, right at the transport
+ceiling of §21.4. Those are three sources of variance stacked on one cell.
+
+Consequence, accepted in advance: **the peak 1 KB pg_resp cell may have no
+publishable figure.** A cell that cannot be measured to 8% does not get published
+at 27%, and the gap is stated rather than filled with the best of three runs.
+
+## 24. `TCP_NODELAY` fixed at commit `5e725fb`
+
+pg_resp now sets `TCP_NODELAY` on accepted sockets, as Redis and Valkey do. It was
+previously set only on `resp-client`'s outbound loopback socket.
+
+**This is hygiene, not a fix for §22** — see that section for why the two are
+unrelated. Verification, as required before resuming: one repeat of a stable
+completed cell at 1 KB, where replies are single-segment and the option is
+therefore expected to change nothing measurable:
+
+| cell | pre-fix | post-fix | delta | that cell's own spread |
+|---|---|---|---|---|
+| `P-def d1024-p16-c8` | 391,697 ops/s | 398,154 ops/s | **+1.65%** | 2.38% |
+
+Within the cell's own run-to-run spread, i.e. no detectable change — which is the
+expected and desired result. It is recorded as a verification that the fix is
+inert at this payload size, **not** as a performance improvement.
+
+Every cell measured before `5e725fb` is superseded and archived in
+`bench/results/grid-prefix-superseded/`. No published table mixes pre- and
+post-fix figures.
