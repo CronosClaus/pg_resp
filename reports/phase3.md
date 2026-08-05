@@ -341,3 +341,84 @@ flattering than the pitch.
 6. **The vendored libclang setup is machine-local and fragile.** It now works
    from a clean build, but it lives in `~/.cargo/config.toml` with absolute
    paths. Phase 4's CI will need a real `libclang-dev`, not this.
+
+---
+
+# Phase 4 kickoff — human-approved amendments (binding)
+
+Recorded here, verbatim in substance, because the Phase 4 session starts from
+the bible plus this report and will have no memory of the conversation that
+produced them (bible §0.2). Treat this section as instructions, not history.
+
+**Phase 3 was accepted, and D13 was acknowledged** — the
+backend-writes-when-the-store-is-unreachable argument was accepted as correct,
+and D2 stands unchanged.
+
+## 1. CI is the critical path, and the first item
+
+GitHub Actions, matrix **PG 16/17/18**, using a real `libclang-dev` — **retire
+the vendored `~/.cargo` libclang hack** documented in `pgrx-patterns` §8.2.
+Builds must be **from scratch**: the warm-cache bug this phase uncovered (the
+project had not been able to regenerate bindings since Phase 0 and nobody knew,
+because `target/` always held a stale copy) is precisely what CI exists to
+catch. **Run `cargo clean` and a full local build BEFORE writing the workflow**,
+so the workflow is written against a known-good from-scratch path rather than
+debugged through CI pushes.
+
+## 2. Benchmark protocol §10, with iron rule 7 enforced
+
+Every run ships its raw artifact and rerun command. Specifically:
+- `--authenticate` on **every** memtier invocation, plus the two one-line sanity
+  checks from the memtier trap (`SHOW pg_resp.password;` before,
+  `grep -c NOAUTH <output>` after — must be 0). See
+  `docs/refs/memtier_benchmark-notes.md` trap 9 and `bench/results/ENV.md` §4.
+- The 50%-throttle runs are computed from the **measured 397,398 ops/sec
+  ceiling** (`bench/results/ENV.md` §4), not from a fresh guess.
+
+## 3. README / launch narrative
+
+- Lead demo 2 with **BOUNDED VS UNBOUNDED — the censoring row** (504 of 621 vs
+  0 of 1,183). **Never** claim "zero staleness": Arm B measured 5.83% stale
+  because cache-aside lets a reader re-populate a key after the eviction lands,
+  which happens identically with Redis. `demos/2-trigger-invalidation/README.md`
+  already states it correctly; keep that framing.
+- First screen = the positioning table (bible §2), **including the Redka and
+  Valkey acknowledgment**. HN will name Redka within ten comments; say it first.
+- The **anti-persona section (the five filters)** is a named deliverable, not a
+  nice-to-have: who should *not* use this.
+
+## 4. `docs/ops.md` gains "the 8 GB box worked example"
+
+- Three-tenant RAM split: `shared_buffers` / `pg_resp.max_memory` / OS page
+  cache, with real numbers on an 8 GB machine.
+- **Cold-start stampede as caveat #1** — a worker restart empties the cache
+  (D5), and every miss then hits Postgres at once.
+- An **OOM arithmetic rule** the reader can apply to their own box.
+- Update the blast-radius section for the S6 finding: a worker-only restart,
+  measured at **2.5s**, which does *not* force cluster-wide crash recovery —
+  distinct from an external `kill -9`, which does.
+
+## 5. Upstream goodwill — cheap, and before launch
+
+File pgrx issues for three findings from this phase, all original:
+- the `#[pg_trigger]` wrapper's `.expect("Trigger function panic")`, which
+  renders a returned error via `Debug` and makes a well-written error message
+  unreachable;
+- `ereport!`'s optional fourth argument being **errdetail**, not errhint, which
+  silently misfiles every hint;
+- the **undocumented `GucSetting::get()` thread check**, which makes any
+  non-`Postmaster` GUC context misleading in a threaded worker.
+
+Link them from the launch post: original upstream findings are community
+credibility.
+
+## 6. ADD2 is the designated filler task
+
+The randomized SCAN-interleaving proptest (deferred from Phase 3) fills
+CI-wait gaps. Do not let it displace the critical path.
+
+## 7. Explicitly deferred to backlog — document, do not build
+
+Open threads 1, 3 and 5 below: the `bytea` variant of `resp.get`, additional
+`resp.evict` key-column types, and a tighter `PER_ENTRY_OVERHEAD_BYTES`
+measurement. Write them down as known limitations; build none of them.
