@@ -90,9 +90,30 @@ SERVER_CPUS="${SERVER_CPUS:-}"
 
 # Applied to every server container so the server side stays on its own
 # physical cores (ENV.md §9). Empty = unpinned, same as the dev box.
-cpuset_args() {
+#
+# MEM_LIMIT is a SAFETY BOUND, not a tuning parameter, and only one arm can
+# plausibly reach it. R-def is stock Redis: it has no `maxmemory` at all, which is
+# a real property of the untuned arm and a real operational hazard. At the 16 KB
+# payload of bible §10's grid, a 1M-key space is ~16 GB of values, and a stock
+# Redis with RDB snapshots on may also fork for BGSAVE and dirty pages
+# copy-on-write on top of that. On a 30 GB box with no swap that can take the
+# HOST down mid-grid and cost an entire overnight run.
+#
+# So every server container gets a generous ceiling well above what the capped
+# arms (256 MB) can use. It changes nothing for R-opt/V-opt/P-*/K-pg. If R-def
+# hits it, the container is constrained rather than the box dying, the cell fails
+# loudly, and "stock Redis exhausts memory at 16 KB over a 1M key space" is
+# itself an honest finding about the untuned arm — recorded, not hidden.
+MEM_LIMIT="${MEM_LIMIT:-12g}"
+
+resource_args() {
   [[ -n "$SERVER_CPUS" ]] && printf '%s\n%s\n' --cpuset-cpus "$SERVER_CPUS"
+  [[ -n "$MEM_LIMIT" ]] && printf '%s\n%s\n' --memory "$MEM_LIMIT"
 }
+
+# Kept as an alias so no call site changes meaning: pinning and the memory
+# guardrail are applied together everywhere.
+cpuset_args() { resource_args; }
 
 # PostgreSQL's `include` is a config-file directive, not something -c can set,
 # and the postgres image's entrypoint owns postgresql.conf. So the arm's conf
@@ -255,9 +276,17 @@ EOF
         "$REDIS_IMAGE" redis-server /etc/redis.conf --port "$port" >/dev/null ;;
     R-opt)
       docker rm -f "$name" >/dev/null 2>&1 || true
+      # REDIS_EXTRA_ARGS exists for exactly one approved purpose: the
+      # `--io-threads 4` robustness check of ENV.md §21.3. Redis 8's default is a
+      # single I/O thread, so the RANKED arm stays single-threaded — that is the
+      # honest like-for-like against pg_resp's single command thread (D4).
+      # Anything set here makes the run a labelled supplementary cell, never a
+      # ranked arm, and the raw header records it because live CONFIG GET
+      # io-threads is captured per cell.
       docker run -d --name "$name" --network host $(cpuset_args | tr '\n' ' ') \
         -v "$CONFIGS/redis-cache.conf:/etc/redis.conf:ro" \
-        "$REDIS_IMAGE" redis-server /etc/redis.conf --port "$port" >/dev/null ;;
+        "$REDIS_IMAGE" redis-server /etc/redis.conf --port "$port" \
+        ${REDIS_EXTRA_ARGS:-} >/dev/null ;;
     V-opt)
       docker rm -f "$name" >/dev/null 2>&1 || true
       docker run -d --name "$name" --network host $(cpuset_args | tr '\n' ' ') \
