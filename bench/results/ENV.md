@@ -1300,7 +1300,18 @@ that size, so the default send buffer was never the mechanism. §22's stated roo
 cause is **withdrawn**; its *evidence* (the four-way collapse, the 44-byte
 boundary, the latency invariance) all stands, and only the explanation was wrong.
 
-#### The artifact is memtier's
+#### The artifact is memtier's ON THAT BOX — and only there
+
+**QUALIFIED AFTER THE FACT (see `docs/upstream/04-...NOT-REPRODUCED.md`):** the
+heading below originally read "the artifact is memtier's", full stop. It does not
+reproduce on a second machine — a clean build of the same pinned commit against
+stock Redis shows **no cliff at all** (16,340 B -> 8,560 ops/s; 16,384 B -> 7,225
+ops/s). So what follows establishes that the client was implicated *in the bench
+box's environment*, not that memtier has a general defect. It is not filed
+upstream, because an issue nobody can reproduce off one destroyed machine is not a
+useful issue.
+
+Everything in this subsection remains true **of that box**.
 
 Two clients, same pg_resp server, same kernel, same loopback, minutes apart:
 
@@ -1342,11 +1353,14 @@ a worse defect than an acknowledged gap.
 
 Logged for follow-up rather than pursued now:
 
-- **A likely memtier upstream finding.** A three-orders-of-magnitude collapse at a
-  16 KB data-size boundary, absent from another client against the same server,
-  looks like a client defect worth reporting. It belongs with the pgrx drafts in
-  `docs/upstream/` after someone reproduces it from a clean `memtier_benchmark`
-  build, which is not this box's job.
+- ~~**A likely memtier upstream finding.**~~ **ATTEMPTED AND DROPPED.** Reproduced
+  from a clean build on a second machine against stock Redis, per the plan — and it
+  **did not reproduce**. Recorded as a non-finding in
+  `docs/upstream/04-memtier-16k-boundary-NOT-REPRODUCED.md`. **Two upstream
+  findings stand, not three.** One loose thread is recorded there: the box's
+  default `tcp_wmem` was 16,384, exactly where the cliff sat, and the second
+  machine's is 262,144 — suggestive, but raising it on the box did not move the
+  cliff, and the box is now destroyed.
 - **`docs/BENCHMARKS.md` must state the 16 KB gap as a harness limitation** with
   the two-client table above as proof, not as a silent omission.
 

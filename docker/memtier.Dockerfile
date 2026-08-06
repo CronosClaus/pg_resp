@@ -20,8 +20,15 @@ FROM ubuntu:24.04
 
 # Pinned toolchain-free build deps. libpcre3-dev (not libpcre2) is what
 # memtier's configure.ac looks for.
+# libtool is REQUIRED and was missing: `autoreconf -ivf` shells out to
+# `libtoolize`, which ships in the libtool package. Its absence built fine on the
+# benchmark box and failed on a clean build elsewhere with
+# "Can't exec libtoolize" — the image happened to work there because of a
+# differently-dated package index, not because the dependency was satisfied.
+# Found by rebuilding this image from scratch on a second machine, which is the
+# only thing that finds a missing build dependency.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      build-essential autoconf automake pkg-config ca-certificates \
+      build-essential autoconf automake libtool pkg-config ca-certificates \
       libevent-dev libpcre3-dev zlib1g-dev libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
