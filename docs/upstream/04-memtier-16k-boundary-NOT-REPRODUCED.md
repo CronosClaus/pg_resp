@@ -63,6 +63,28 @@ runtime change did not take effect on the path that mattered, or the correlation
 a coincidence across two machines that differ in several ways. **The box was
 destroyed before this could be settled**, and it cannot be settled without it.
 
+## Checked: memtier does NOT set `SO_SNDBUF`, which makes this stranger, not clearer
+
+The obvious explanation for "raising `tcp_wmem` did not move the cliff" would be
+that memtier sets its own send-buffer size explicitly, making the kernel default
+irrelevant. **It does not.** Every `setsockopt` call in the pinned tree:
+
+```
+shard_connection.cpp:410   SO_KEEPALIVE
+shard_connection.cpp:421   SO_LINGER
+shard_connection.cpp:424   TCP_NODELAY
+statsd.cpp:186,187         SO_SNDTIMEO / SO_RCVTIMEO   (statsd socket, not the workload)
+```
+
+No `SO_SNDBUF`, no `SO_RCVBUF`. So the kernel default *should* have governed the
+send buffer, and raising `net.ipv4.tcp_wmem`'s default from 16,384 to 262,144
+*should* have changed behaviour. It did not.
+
+That removes the tidy explanation and leaves the contradiction sharper than before:
+the cliff sat exactly at the box's default send-buffer size, the client does not
+override that size, and raising it changed nothing. One of those three facts is
+being misread, and the machine that could say which is gone.
+
 ## What would settle it
 
 A second machine with a default `tcp_wmem` of 16,384, running the boundary probe

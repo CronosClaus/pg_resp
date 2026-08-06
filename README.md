@@ -191,9 +191,20 @@ against the same server shows no such effect:
 | **16,384 B** | **19,355 req/s** | **24.5 ops/s** |
 | 32,768 B | 16,216 req/s | — |
 
+**Read that table narrowly, because we did too.** The cliff **did not reproduce**
+with a clean build of the same pinned memtier on a second machine against stock
+Redis — so this is a client-side artifact **of that specific environment**, not a
+general memtier defect. The evidence that it was client-side *there*: all four
+servers (pg_resp, Redis, Valkey, Redka) collapsed identically on that box, while
+`redis-benchmark` against the same box did not. If you run memtier at 16 KB on your
+own machine you will most likely see no cliff — that does not contradict anything
+here. Full account, including the failed reproduction:
+[`ENV.md`](bench/results/ENV.md) §22 and §25, and
+[`docs/upstream/04-memtier-16k-boundary-NOT-REPRODUCED.md`](docs/upstream/04-memtier-16k-boundary-NOT-REPRODUCED.md).
+
 pg_resp serves 16 KB and 32 KB values fine. Every ranked cell in this document
 comes from one pinned client, so rather than mix clients in one table we publish
-the gap and its proof. Full account: [`ENV.md`](bench/results/ENV.md) §22, §25.
+the gap and its proof.
 
 ## Install
 
@@ -215,6 +226,11 @@ divergence from Redis behaviour: [`docs/semantics.md`](docs/semantics.md).
 
 **0.1.0-rc.** Not yet tagged, not yet announced. Phase 4 of the plan in
 [`project-bible.md`](project-bible.md); benchmarking and packaging are what remain.
+
+Developed agent-assisted (Claude Code) against a phased plan with hard gates. The
+full plan, the phase reports, the benchmark methodology and the failures are public
+in this repository — including the measurements that were withdrawn and the
+conclusions that were wrong. Method: [`docs/RUNBOOK.md`](docs/RUNBOOK.md).
 
 ## Contributing
 

@@ -21,6 +21,31 @@ Read, in order, nothing else by default:
 - error style, naming, control file, docs tone → `.claude/skills/pg-conventions`
 - memtier flags, bench arms, env checklist → `.claude/skills/bench-harness`
 
+## Standing rule: everything here is public-facing
+
+**Every artifact in this repository is public-facing material** — the phase
+reports, `bench/results/ENV.md`, the docs, these skills, and this file. The repo is
+public and the paper trail is deliberately part of the credential.
+
+Write everything as if it will be quoted in a comment thread, because it will be.
+**This changes the tone nowhere.** The honesty is the value: the withdrawn
+measurements, the refuted hypotheses and the corrections are the most credible
+content in here, and dressing them up would destroy exactly what makes them worth
+reading. It adds one duty rather than a filter.
+
+**The duty: a PUBLIC-FACING PASS before the `v0.1.0` tag.**
+
+- sweep for stale personal artifacts — absolute `/home/...` paths in docs,
+  machine-specific hostnames, leftover `TODO`/`FIXME`
+- remove the `DRAFT` / `PENDING HUMAN REVIEW` banners that exist only because
+  review was outstanding (`README.md`, `docs/BENCHMARKS.md`,
+  `demos/3-rate-limiter/README.md`) — **this is an explicit W14 checklist item, not
+  a judgement call at tag time**
+- verify every intra-repo link resolves as GitHub renders it (relative paths from
+  the file's own directory, not from the repo root)
+- keep every `PENDING` that is still genuinely unmeasured; the pass removes stale
+  *banners*, never inconvenient *facts*
+
 ## Iron rules
 1. PG FFI from the **main bgworker thread only**. Never from server/loop threads.
 2. Never read `/ref` trees directly once digests exist; use `docs/refs/*-notes.md`. Digests are created once in Phase 0 and updated only when a gate failure traces to a wrong fact.
