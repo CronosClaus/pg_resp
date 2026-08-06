@@ -1,0 +1,13 @@
+# Cosmetic guard after the pre-tag identity rewrite.
+#
+# The rewrite (git filter-repo --mailmap) already collapsed the two historical
+# author identities into one, so this file changes nothing about the current
+# history. It exists so that if a commit ever lands from a stale local git config
+# again — which happened once during the rewrite itself, when the remap commit was
+# authored with the old work email and had to be amended — git's own tooling
+# displays it correctly instead of quietly showing a third contributor.
+#
+# It is a display guard, not a fix. The real guards are the local git config and
+# GitHub's "block command line pushes that expose my email".
+CronosClaus <65883459+CronosClaus@users.noreply.github.com> <claudiu.carare@takeofflabs.com>
+CronosClaus <65883459+CronosClaus@users.noreply.github.com> <cronosclaus@gmail.com>
