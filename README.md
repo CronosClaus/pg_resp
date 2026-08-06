@@ -58,8 +58,31 @@ review.
 That difference is what [demo 2](demos/2-trigger-invalidation/) measures: the same
 application, one arm invalidating in application code with one realistically
 forgotten path, the other using a trigger, and a stale-serve count under a write
-storm. The stale-serve counts are **not yet measured** — that demo's numbers are
-outstanding, and no figure is quoted here until they exist.
+storm. Measured:
+
+| | arm A: invalidate in app code | arm B: `resp.evict` trigger |
+|---|---|---|
+| stale serves | 894 of 1,031 reads (**86.7%**) | 1,138 of 22,964 reads (**5.0%**) |
+| **still stale when observation stopped at 10 s** | **493** | **0** |
+| staleness p50 | ≥ 10 s (a floor, not a measurement) | **2.3 ms** |
+
+*Same application, same write storm. Arm A has one realistically forgotten
+invalidation path; arm B replaces it with the trigger. Measured 2026-08-06 on a
+WSL2 development machine — these are **behavioural counts**, not throughput, so the
+environment does not move them; raw output in
+[`bench/results/demo2/`](bench/results/demo2/).*
+
+**The middle row is the whole argument.** Arm A's 493 stale serves were *still
+stale when the measurement gave up* — their true duration is unknown and longer, so
+arm A's percentiles are floors rather than measurements. Arm B's staleness was
+corrected every single time, in milliseconds. That is bounded versus unbounded, in
+one row.
+
+Note what the top row is *not*: arm B is not "zero stale". A cache invalidated at
+commit still serves a stale value for the microseconds between the write and the
+eviction, and 5% of reads caught that window under a deliberate storm. The claim is
+a **ceiling on staleness**, not its absence — and a ceiling is what you can reason
+about.
 
 ## Do **not** use pg_resp if
 

@@ -1,0 +1,56 @@
+=== ARM: trigger ===
+ Container 2-trigger-invalidation-pg_resp-1  Running
+ Container 2-trigger-invalidation-setup-1  Created
+ Container 2-trigger-invalidation-app-1  Running
+ Container 2-trigger-invalidation-pg_resp-1  Waiting
+ Container 2-trigger-invalidation-pg_resp-1  Healthy
+ Container 2-trigger-invalidation-setup-1  Starting
+ Container 2-trigger-invalidation-setup-1  Started
+ Container 2-trigger-invalidation-setup-1  Waiting
+ Container 2-trigger-invalidation-setup-1  Exited
+2026/08/06 07:24:22 Created 10 test products
+2026/08/06 07:24:22 Starting load generator
+
+=== Load Generation Results ===
+
+Total reads:       22964
+Total writes:      8348
+  Primary path:    4234
+  Bulk path:       4114
+Stale serves:      1138 (4.96%)
+Max staleness:     350.305277ms
+Staleness p50:     2.33177ms
+Staleness p99:     227.360624ms
+
+=== ARM: app ===
+2026/08/06 07:27:56 [32m/build/main.go:258 [33mSLOW SQL >= 200ms
+[0m[31;1m[290.820ms] [33m[rows:1][35m SELECT * FROM "products" WHERE "products"."id" = 9 ORDER BY "products"."id" LIMIT 1[0m
+
+2026/08/06 07:27:56 [32m/build/main.go:258 [33mSLOW SQL >= 200ms
+[0m[31;1m[232.775ms] [33m[rows:1][35m SELECT * FROM "products" WHERE "products"."id" = 4 ORDER BY "products"."id" LIMIT 1[0m
+
+2026/08/06 07:27:57 [32m/build/main.go:258 [33mSLOW SQL >= 200ms
+[0m[31;1m[206.911ms] [33m[rows:1][35m SELECT * FROM "products" WHERE "products"."id" = 9 ORDER BY "products"."id" LIMIT 1[0m
+
+2026/08/06 07:27:57 [32m/build/main.go:258 [33mSLOW SQL >= 200ms
+[0m[31;1m[231.793ms] [33m[rows:1][35m SELECT * FROM "products" WHERE "products"."id" = 7 ORDER BY "products"."id" LIMIT 1[0m
+
+2026/08/06 07:27:57 [32m/build/main.go:258 [33mSLOW SQL >= 200ms
+[0m[31;1m[221.355ms] [33m[rows:1][35m SELECT * FROM "products" WHERE "products"."id" = 5 ORDER BY "products"."id" LIMIT 1[0m
+
+=== Load Generation Results ===
+
+Total reads:       1031
+Total writes:      2209
+  Primary path:    1082
+  Bulk path:       1127
+Stale serves:      894 (86.71%)
+Max staleness:     10.040347611s
+  RIGHT-CENSORED:  493 of 894 staleness samples were still stale when
+                   observation stopped at 10s. Their true duration is
+                   UNKNOWN and longer — the percentiles below are
+                   floors, not measurements.
+Staleness p50:     10s
+Staleness p99:     10s
+
+DEMO2-DONE
