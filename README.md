@@ -4,10 +4,11 @@
 > Draft for external review (Phase 4 W7/W14). Nothing here is published until
 > reviewed.
 >
-> **Every throughput, latency and memory figure below is measured**, on a dedicated
-> box, 3×60s per cell with a spread gate, from committed raw artifacts. Two things
-> remain `PENDING` and are deliberately left empty rather than estimated: demo 2's
-> stale-serve counts, and the container image that does not exist until release.
+> **Every throughput, latency and memory figure below is measured** — on a dedicated
+> box except where labelled inline (demo 2's behavioural counts, measured on WSL2),
+> 3×60s per cell with a spread gate, from committed raw artifacts. One thing remains
+> `PENDING` and is left empty rather than estimated: the container image, which does
+> not exist until release.
 
 **A Redis-protocol (RESP2) cache server that runs inside a PostgreSQL background
 worker.** `redis-cli` connects to your database and it answers. One fewer service
@@ -68,9 +69,11 @@ storm. Measured:
 
 *Same application, same write storm. Arm A has one realistically forgotten
 invalidation path; arm B replaces it with the trigger. Measured 2026-08-06 on a
-WSL2 development machine — these are **behavioural counts**, not throughput, so the
-environment does not move them; raw output in
-[`bench/results/demo2/`](bench/results/demo2/).*
+WSL2 development machine. The environment **does** move the rates and latencies;
+what it does not move is the distinction the demo exists to show and the censored
+count in the middle row — mechanism in
+[`bench/results/demo2/README.md`](bench/results/demo2/README.md), raw output
+alongside it.*
 
 **The middle row is the whole argument.** Arm A's 493 stale serves were *still
 stale when the measurement gave up* — their true duration is unknown and longer, so
@@ -134,6 +137,15 @@ outright:
 | pg_resp | 287,152 | — |
 
 *1 KB values, pipeline 16, 1 connection, 3×60s, median run.*
+
+**Across the whole grid**, of the 24 paired comparisons against Redis and Valkey
+(12 workloads × 2 incumbents, publishable cells only): **pg_resp faster in 8,
+an incumbent faster in 2, and 14 within run-to-run noise.** Read that with the row
+below, not on its own — **both incumbents run single-threaded by default here, and
+the same Redis given `io-threads 4` is 1.79× faster than pg_resp.** The tally
+describes a comparison against default configuration, not a capability ranking, and
+the honest summary of the two together is: *comparable to a single-threaded Redis at
+these payloads, and beaten by a Redis you let use more cores.*
 
 ### Where pg_resp edges ahead — and immediately loses again
 

@@ -3,7 +3,7 @@
 **Codename:** pg_resp
 **One line:** A Postgres extension that runs a Redis-protocol (RESP2) cache server inside a Postgres background worker — `redis-cli` connects to your database and it answers. Delete one container.
 **Form factor:** in-process. Not a proxy, not a sidecar, not a translation layer to SQL.
-**Status:** unbuilt. Phase 0 not run.
+**Status:** Phase 4 (benchmark, package, publish). Phases 0-3 complete — see `reports/`. *This line read "unbuilt. Phase 0 not run." until Phase 4; caught by the public-facing pass the standing rule in `CLAUDE.md` now requires.*
 **Owner:** human. **Builder:** Claude Code.
 
 ---
@@ -76,7 +76,7 @@ The architecture is Redis's architecture, relocated. The gap to Redis should be 
 
 ### 3.1 Language and framework — `D1`
 
-**Rust via pgrx** (current: pgrx 0.18.x, supports PG 13–18; PG 18 needs the `pg18` feature flag and `cargo pgrx init` against it).
+**Rust via pgrx** (pinned: **`=0.19.2`**, supports PG 13–18; PG 18 needs the `pg18` feature flag and `cargo pgrx init` against it). *Amended in Phase 4: this line and D1 both read "0.18.x", written before Phase 0. The project has been on an exact-pinned `=0.19.2` since Phase 0's first build; `crates/pg_resp/Cargo.toml` is the single source of truth and the docs had drifted, not the code.*
 
 Why Rust and not C, given "PG-native, no skepticism" (§8): a **network-facing protocol parser inside the database** is exactly where memory safety is a selling point, not a foreign-ness. Precedent is established: pgvectorscale, ParadeDB pg_search, pg_mooncake are pgrx extensions taken seriously by the community. Skepticism is managed by following PG conventions everywhere else (§8), not by writing C.
 
@@ -381,7 +381,7 @@ Each demo ships as a `docker compose up` with a README of ≤ 1 screen.
 
 | id | decision | reversible | rationale |
 |---|---|---|---|
-| D1 | Rust + pgrx (0.18.x), PG 16–18 | costly | memory safety on a network parser; established precedent; C fallback only if pgrx hits a wall in Phase 0 |
+| D1 | Rust + pgrx (**`=0.19.2`** — corrected from "0.18.x" in Phase 4; see §3.1), PG 16–18 | costly | memory safety on a network parser; established precedent; C fallback only if pgrx hits a wall in Phase 0 |
 | D2 | v0.1 store = bgworker-local heap, not PG shared memory | yes (v0.2) | pgrx safe-shmem limits post-0.16; avoids LWLock/DSA FFI risk on the critical path; cache semantics tolerate restart-loss |
 | D3 | SQL surface via loopback RESP + post-commit apply queue | yes | consistency with wire path for free; commit-safety without shmem; latency fine for triggers |
 | D4 | single-threaded command execution; PG FFI main-thread-only | partially (sharding later) | Redis-proven model; deletes the whole locking problem class in v0.1 |
