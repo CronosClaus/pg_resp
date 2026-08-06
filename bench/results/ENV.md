@@ -1084,6 +1084,30 @@ Consequence, accepted in advance: **the peak 1 KB pg_resp cell may have no
 publishable figure.** A cell that cannot be measured to 8% does not get published
 at 27%, and the gap is stated rather than filled with the best of three runs.
 
+### OUTCOME: the prediction did not hold
+
+Recorded by appending rather than by editing the text above, because a prediction
+that quietly becomes correct after the fact is not a prediction.
+
+In the final Stage B run `P-def d1024-p16-c64` came in at **0.72% spread** — and
+`P-opt` at the same workload at 0.53% — comfortably inside the 8% gate. Every one
+of the 72 ranked cells passed. Two changes landed between the characterisation
+above and that run, and both plausibly contributed:
+
+- **`--rerun-on-spread` began actually working** (§24's sibling finding: the flag
+  had been an accepted no-op). A cell now gets a second attempt and keeps the
+  tighter one, which converts a marginal cell into a passing one.
+- **`TCP_NODELAY` was set on accepted sockets** (commit `5e725fb`). Measured inert
+  at 1 KB on a *stable* cell (+1.65% inside a 2.38% own-spread), but an option that
+  removes a latency interlock could plausibly reduce variance on an *unstable* one
+  without moving the median. That is a hypothesis and is not claimed as the cause.
+
+Which of the two did it is not established, and separating them would need a
+deliberate A/B that has not been run. **What is established: the cell is
+publishable, so the "no publishable figure" consequence above did not
+materialise.** The characterisation stays on the record because it was true of the
+configuration it described.
+
 ## 24. `TCP_NODELAY` fixed at commit `5e725fb`
 
 pg_resp now sets `TCP_NODELAY` on accepted sockets, as Redis and Valkey do. It was

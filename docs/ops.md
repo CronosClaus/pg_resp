@@ -73,15 +73,27 @@ The line that matters is the difference between the fourth and fifth rows.
 `pg_resp.max_memory` bounds `key.len() + value.len() + 96` summed over entries.
 Two things live outside that sum:
 
-1. **The 96-byte constant is deliberately conservative, and it is a single
-   number standing in for a range.** It was measured twice on a live worker, by
-   `VmRSS` delta over 100k-entry loads: the first batch gave ~71 bytes of
-   overhead per entry, the second ~134. The two disagree because Rust's
-   `HashMap` doubles its bucket array, so a load that crosses a resize
-   threshold pays for capacity it has not filled yet. 96 sits between them,
-   chosen to over-estimate rather than under-estimate. **Near a resize
-   boundary, real overhead can exceed the accounted figure by ~40 bytes per
-   entry** — 40 MB unaccounted at 1M entries.
+1. **The 96-byte constant is an accounting figure, and real overhead is about
+   twice it. Size from the measured number, not from the constant.** The
+   constant was measured twice on a live worker by `VmRSS` delta over
+   *100k-entry* loads: ~71 bytes per entry on the first batch, ~134 on the
+   second. They disagree because Rust's `HashMap` doubles its bucket array, so a
+   load crossing a resize threshold pays for capacity it has not filled. 96 sits
+   between them.
+
+   **Corrected against a 1M-entry measurement** (`bench/results/ENV.md` §26,
+   1M x 1 KB entries on a dedicated box): real overhead is **~186 bytes per
+   entry** above the value size, of which ~10 bytes is the key, leaving **~176
+   bytes beyond key + value against the 96 accounted**. So the unaccounted excess
+   is **~80 bytes per entry — roughly 80 MB at 1M entries**, about double the
+   ~40 MB this section previously documented. The earlier figure was not wrong
+   for the scale it was taken at; it was measured at 100k entries and does not
+   extrapolate, because `HashMap` capacity, allocator arenas and fragmentation
+   all grow with the table.
+
+   **For sizing, plan on ~190 bytes of real overhead per entry, not 96.** An
+   operator who sized from the accounted constant would under-provision by ~90 MB
+   per million entries. Erring high here costs headroom; erring low costs an OOM.
 2. **Allocator and process overhead.** The worker is a process: stacks, the
    `mio` poll state, read and write buffers (bounded by
    `MAX_PENDING_WRITE_BYTES`, 64 MB per connection with bytes owed), jemalloc's
@@ -96,7 +108,11 @@ RSS ÷ max_memory  =  285 MiB / 256 MiB  =  ~1.11
 ```
 
 **Plan on RSS ≈ 1.15 × `pg_resp.max_memory`**, and treat that as a floor rather
-than a guarantee. It is one measurement on one workload, and the ratio is
+than a guarantee. The 1M-entry measurement is consistent with this: 1,210,765,312
+bytes of RSS against ~1,130,000,000 accounted (1M x [1024 value + ~10 key + 96])
+is a ratio of **~1.07** — inside the 1.15 planning figure, so that figure stands.
+It is the *per-entry overhead constant* above that was understated, not this
+ratio. It is one measurement on one workload, and the ratio is
 workload-dependent in a predictable direction: with 1 KB values the 96-byte
 constant is ~9% of an entry, but with 64-byte values it is larger than the value
 itself, so a cache of small entries carries proportionally far more overhead per

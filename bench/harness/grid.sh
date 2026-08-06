@@ -75,6 +75,13 @@ CONNS=(1 8 64)
 # document, move on" rule rather than investigated further on the clock.
 # Full record: ENV.md §25.
 WORKLOADS=(64:1 64:16 1024:1 1024:16)
+# Allows a follow-up pass to run a different slice without editing this file, so
+# the 16 KB re-run after the tcp_wmem change is a config change rather than a code
+# change. Space-separated size:pipeline pairs, e.g.
+#   WORKLOADS_OVERRIDE="16384:1 16384:16"
+if [[ -n "${WORKLOADS_OVERRIDE:-}" ]]; then
+  read -r -a WORKLOADS <<< "$WORKLOADS_OVERRIDE"
+fi
 
 ATTEMPTED=0
 VOIDED=0
