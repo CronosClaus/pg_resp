@@ -1,0 +1,141 @@
+# Publish the pg_resp container image to GHCR.
+#
+# WHY THIS EXISTS RATHER THAN A LOCAL `docker push`
+# -------------------------------------------------
+# Nobody logs into GHCR. The image is built and pushed here, by the built-in
+# GITHUB_TOKEN scoped to this repository, so publishing requires no long-lived
+# credential to exist on anyone's laptop and no agent to hold one. That is a
+# deliberate property, not a convenience: the release artifact is traceable to a
+# commit and a workflow run rather than to a machine.
+#
+# TAGGING
+#   workflow_dispatch  ->  <sha>  and  0.1.0-rc      (release candidates)
+#   tag v*             ->  <semver>  and  latest     (real releases)
+#
+# The commit SHA tag is always pushed, so every published image can be traced to
+# the exact source it was built from — which matters here because the benchmark
+# numbers in bench/results/ are tied to a specific commit's server source.
+name: release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  quickstart-check:
+    # The G1 gate's three documented commands, run on every release.
+    #
+    # THIS IS NOT THE PUBLISHED G1 TIMING and must never be quoted as one. A
+    # GitHub runner's network is unrepresentatively fast and its docker cache
+    # state is not a user's, and G1 is a pull-dominated wall-clock measurement.
+    # This job answers a narrower and permanently useful question: do the three
+    # commands in the README still work at all? That is a regression guard, and
+    # it is public so anyone can see it pass or fail.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the image locally (stands in for the pull)
+        run: docker build -t pg_resp:quickstart-check -f docker/pg_resp.Dockerfile .
+
+      - name: Command 1 of 3 — start it
+        run: |
+          docker run -d --name pg_resp_qs \
+            -e POSTGRES_PASSWORD=postgres \
+            -p 127.0.0.1:6379:6379 -p 127.0.0.1:5432:5432 \
+            pg_resp:quickstart-check
+
+      - name: Command 2 of 3 — wait for it to serve
+        run: |
+          for i in $(seq 1 60); do
+            if docker exec pg_resp_qs pg_isready -U postgres -q 2>/dev/null; then break; fi
+            sleep 2
+          done
+          docker exec pg_resp_qs pg_isready -U postgres
+
+      - name: Command 3 of 3 — SET and GET over RESP
+        run: |
+          docker run --rm --network host redis:8.2-alpine \
+            redis-cli -h 127.0.0.1 -p 6379 SET quickstart hello
+          got=$(docker run --rm --network host redis:8.2-alpine \
+            redis-cli -h 127.0.0.1 -p 6379 GET quickstart)
+          echo "GET returned: $got"
+          test "$got" = "hello" || { echo "quickstart FAILED: expected hello"; exit 1; }
+
+      - name: The SQL surface is reachable too
+        run: |
+          docker exec pg_resp_qs psql -U postgres -v ON_ERROR_STOP=1 \
+            -c "CREATE EXTENSION pg_resp;" \
+            -c "SELECT resp.get('quickstart');"
+
+      - name: Diagnostics on failure
+        if: failure()
+        run: docker logs pg_resp_qs 2>&1 | tail -50
+
+      - name: Clean up
+        if: always()
+        run: docker rm -f pg_resp_qs || true
+
+  publish:
+    needs: quickstart-check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive tags
+        id: tags
+        run: |
+          sha="${{ github.sha }}"
+          img="${REGISTRY}/${IMAGE_NAME}"
+          img="$(echo "$img" | tr '[:upper:]' '[:lower:]')"   # GHCR paths must be lowercase
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            v="${{ github.ref_name }}"; v="${v#v}"
+            echo "tags=${img}:${v},${img}:latest,${img}:${sha}" >> "$GITHUB_OUTPUT"
+            echo "kind=release ${v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tags=${img}:0.1.0-rc,${img}:${sha}" >> "$GITHUB_OUTPUT"
+            echo "kind=release-candidate 0.1.0-rc" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/pg_resp.Dockerfile
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.licenses=PostgreSQL
+
+      - name: Summary
+        run: |
+          echo "### Published ${{ steps.tags.outputs.kind }}" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "${{ steps.tags.outputs.tags }}" | tr ',' '\n' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "GHCR packages are **private by default, independently of repository visibility**." >> "$GITHUB_STEP_SUMMARY"
+          echo "A human must flip this package to public in the GitHub UI before an" >> "$GITHUB_STEP_SUMMARY"
+          echo "unauthenticated \`docker pull\` can succeed — which is what the G1 quickstart" >> "$GITHUB_STEP_SUMMARY"
+          echo "gate measures. Verify with an unauthenticated pull from a clean host before" >> "$GITHUB_STEP_SUMMARY"
+          echo "treating G1 as measurable." >> "$GITHUB_STEP_SUMMARY"

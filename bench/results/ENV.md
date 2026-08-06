@@ -1372,3 +1372,37 @@ applied afterwards, purely to test the hypothesis above, and no published figure
 was measured under it. It is runtime-only and does not survive a reboot. Anyone
 re-running the grid should either revert it or re-run every cell under it — not
 mix.
+
+## 28. Published image vs benchmark image — reconciled, with proof
+
+The published `0.1.0-rc` container image is built by
+`.github/workflows/release.yml` from a commit **later** than the one the benchmark
+box's image was built from. Both digests are recorded here, and the question that
+matters — *did the measured server change?* — is answered by evidence rather than
+assurance.
+
+| | commit | image |
+|---|---|---|
+| benchmark box (all §10 numbers, W6, demo 3) | `50b2e46` | local build, id `sha256:e887058aa174…` |
+| published rc | HEAD at dispatch | GHCR, digest from the workflow run |
+
+```
+$ git diff --stat 50b2e46..HEAD -- crates/
+(no output)
+```
+
+**Zero changes under `crates/`.** The server source — the RESP parser, the store,
+the background worker, the SQL surface — is byte-identical between the image every
+published benchmark was measured against and the image users pull. The 199 files
+that did change are benchmark artifacts, documentation, and
+`docker/memtier.Dockerfile` (the *client* image, which adds a missing `libtool`
+build dependency and cannot affect the server).
+
+So the two images differ in their digests and not in their behaviour, and this is
+stated as a verified fact rather than an apology. Anyone can re-run that one command
+and check it.
+
+**If a future release changes anything under `crates/`, the benchmark numbers must
+be re-measured rather than carried forward.** That is the rule this section exists
+to make checkable: the diff command is the test, and an empty result is the only
+passing outcome.
