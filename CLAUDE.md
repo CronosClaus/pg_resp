@@ -46,6 +46,22 @@ reading. It adds one duty rather than a filter.
 - keep every `PENDING` that is still genuinely unmeasured; the pass removes stale
   *banners*, never inconvenient *facts*
 
+## Standing rule: a guard must EXECUTE the thing it guards
+
+A CI job that checks a documented procedure must **run the committed script or the
+documented command**, never carry its own copy of it. Two definitions of the same
+commands is how a green CI and a broken user path coexist: the `quickstart-check`
+job kept an inline copy of the three quickstart commands, that copy received the
+container-loopback fix, `scripts/g1-quickstart-timing.sh` did not, and the job
+stayed green while a real fresh host failed G1 at command 3.
+
+The divergence is invisible by construction — both copies look correct in
+isolation. The only structural defence is one definition.
+
+**Sweep for this pattern once during the pre-tag public-facing pass:** any workflow
+step that inlines commands which also exist as a committed script or documented
+procedure gets pointed at the committed version instead.
+
 ## Iron rules
 1. PG FFI from the **main bgworker thread only**. Never from server/loop threads.
 2. Never read `/ref` trees directly once digests exist; use `docs/refs/*-notes.md`. Digests are created once in Phase 0 and updated only when a gate failure traces to a wrong fact.
