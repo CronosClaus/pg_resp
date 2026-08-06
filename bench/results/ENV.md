@@ -1276,3 +1276,85 @@ claimed here.
 
 Both runs passed the limiter's own enforcement assertion with zero errors, so both
 numbers describe a limiter that actually limited.
+
+### §25 CLOSED — the artifact is memtier's, and 16 KB is a HARNESS limit, not a pg_resp limit
+
+The `tcp_wmem` hypothesis was tested and **refuted**, then the artifact was
+localised to the client. Both results below.
+
+#### The send-buffer root cause was wrong
+
+`net.ipv4.tcp_wmem` was raised at runtime from `4096 16384 4194304` to
+`4096 262144 4194304` — a 16x larger default send buffer, applied host-wide and
+therefore to every arm equally. The cliff did not move:
+
+```
+tcp_wmem default 16384 -> 262144, re-probed:
+  16,340 B  20,680 ops/s   0.049 ms
+  16,384 B      24.5 ops/s  40.824 ms     <- unchanged
+  32,768 B      24.5 ops/s  40.795 ms
+```
+
+The boundary is still at exactly 16,384 bytes with a send buffer sixteen times
+that size, so the default send buffer was never the mechanism. §22's stated root
+cause is **withdrawn**; its *evidence* (the four-way collapse, the 44-byte
+boundary, the latency invariance) all stands, and only the explanation was wrong.
+
+#### The artifact is memtier's
+
+Two clients, same pg_resp server, same kernel, same loopback, minutes apart:
+
+| data-size | `redis-benchmark` | `memtier_benchmark` |
+|---|---|---|
+| 16,340 B | 20,000 req/s | 21,476 ops/s |
+| **16,384 B** | **19,355 req/s** | **24.5 ops/s** |
+| 32,768 B | 16,216 req/s | — |
+
+**`redis-benchmark` shows no cliff at all** — just the smooth decline with payload
+size that a byte-rate-bound path should show. `memtier_benchmark` collapses by
+three orders of magnitude at exactly its 16 KB boundary.
+
+That settles what the earlier four-way table (§22) really demonstrated. All four
+servers collapsed identically because **the client was the thing collapsing**. The
+table remains the right exclusion exhibit; it was simply better evidence than it
+was understood to be at the time.
+
+The exact mechanism inside memtier is not identified and is not worth more of this
+box's time. The responsible component is identified beyond reasonable doubt, which
+is what the exclusion needs.
+
+#### What this changes about pg_resp
+
+**pg_resp serves 16 KB and 32 KB values without difficulty** — 19,355 and 16,216
+requests/second at one connection with no pipelining, measured by an independent
+client. So the missing 16 KB row in the published tables is a **limitation of the
+pinned benchmark client, not a property of the extension.** That distinction is the
+most important line in this section: a reader seeing "16 KB not measured" should
+not infer "16 KB not handled".
+
+#### Disposition
+
+**16 KB stays out of the published grid**, because every ranked cell must come from
+the same client (`memtier_benchmark` at `272eeb647df5`, `PINS.md`) and that client
+cannot measure this payload size at pipeline 1. Substituting `redis-benchmark` for
+three workloads would put figures from two different clients in one table, which is
+a worse defect than an acknowledged gap.
+
+Logged for follow-up rather than pursued now:
+
+- **A likely memtier upstream finding.** A three-orders-of-magnitude collapse at a
+  16 KB data-size boundary, absent from another client against the same server,
+  looks like a client defect worth reporting. It belongs with the pgrx drafts in
+  `docs/upstream/` after someone reproduces it from a clean `memtier_benchmark`
+  build, which is not this box's job.
+- **`docs/BENCHMARKS.md` must state the 16 KB gap as a harness limitation** with
+  the two-client table above as proof, not as a silent omission.
+
+#### Environment note: the sysctl change is recorded, and no ranked cell used it
+
+The 72-cell ranked grid, the 2 anomaly cells, the supplementary cell, W6 and demo 3
+**all ran with the original `tcp_wmem` default of 16384.** The raised value was
+applied afterwards, purely to test the hypothesis above, and no published figure
+was measured under it. It is runtime-only and does not survive a reboot. Anyone
+re-running the grid should either revert it or re-run every cell under it — not
+mix.
