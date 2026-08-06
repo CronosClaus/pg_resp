@@ -1,0 +1,21 @@
+{
+  "target": "redis",
+  "addr": "127.0.0.1:6381",
+  "workers": 8,
+  "keys": 10000,
+  "budget_per_window": 1000000,
+  "window_seconds": 60,
+  "duration_seconds": 30.000075248,
+  "checks": 3181084,
+  "allowed": 3181084,
+  "denied": 0,
+  "errors": 0,
+  "checks_per_sec": 106035.86736710175,
+  "p50_micros": 72,
+  "p99_micros": 117,
+  "max_micros": 5129,
+  "enforcement_ok": true,
+  "enforcement_detail": "enforced: 3181084 allowed \u003c= ceiling 20000000000, 0 denied",
+  "expected_max_allowed": 20000000000,
+  "windows_touched": 2
+}

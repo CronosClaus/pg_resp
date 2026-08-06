@@ -1,0 +1,26 @@
+=== W6: RAM per 1M x 1KB entries — 2026-08-06T02:56:12Z ===
+cap raised to 1536MB for this metric only (1M x 1KB ~ 1GB of values)
+
+--- P-opt  before: 56.65MiB / 12GiB  (cgroup bytes: 100257792) ---
+fill: Sets       243914.63          ---          ---         1.04975         0.92700         1.13500        28.92700    253892.48 
+P-opt  after: 1.183GiB / 12GiB  (cgroup bytes: 1311023104)  DBSIZE=999986
+P-opt  delta_bytes=1210765312  bytes_per_entry=1210
+
+--- R-opt  before: 4.66MiB / 12GiB  (cgroup bytes: 4624384) ---
+fill: Sets       281964.00          ---          ---         0.90609         0.89500         1.22300         2.27100    293498.34 
+R-opt  after: 1.257GiB / 12GiB  (cgroup bytes: 1349787648)  DBSIZE=999986
+R-opt  delta_bytes=1345163264  bytes_per_entry=1345
+
+--- V-opt  before: 3.18MiB / 12GiB  (cgroup bytes: 3072000) ---
+fill: Sets       278263.73          ---          ---         0.92033         0.84700         1.92700         2.83100    289646.70 
+V-opt  after: 1.264GiB / 12GiB  (cgroup bytes: 1356902400)  DBSIZE=999986
+V-opt  delta_bytes=1353830400  bytes_per_entry=1353
+
+--- K-pg (D17: disk + shared_buffers, NOT RSS) ---
+fill: Sets         6202.78          ---          ---        41.25873        39.93500        73.21500        87.03900      6456.52 
+rkey rows=999986  rstring rows=999986
+rkey size=
+rkey bytes=135880704  rstring bytes=1193205760
+shared_buffers=1GB
+
+### W6 COMPLETE

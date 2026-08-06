@@ -1,0 +1,21 @@
+{
+  "target": "pg_resp",
+  "addr": "127.0.0.1:6379",
+  "workers": 8,
+  "keys": 10000,
+  "budget_per_window": 1000000,
+  "window_seconds": 60,
+  "duration_seconds": 30.000084857,
+  "checks": 3148093,
+  "allowed": 3148093,
+  "denied": 0,
+  "errors": 0,
+  "checks_per_sec": 104936.13651447545,
+  "p50_micros": 74,
+  "p99_micros": 101,
+  "max_micros": 7114,
+  "enforcement_ok": true,
+  "enforcement_detail": "enforced: 3148093 allowed \u003c= ceiling 10000000000, 0 denied",
+  "expected_max_allowed": 10000000000,
+  "windows_touched": 1
+}

@@ -1176,3 +1176,79 @@ warm-up and key space, then bisect the three variables (warm-up volume, key-spac
 size, at-cap eviction) one at a time. If the at-cap eviction path at large entry
 sizes turns out to be the cause, that is a **pg_resp finding** rather than a
 harness one and belongs in the ops documentation.
+
+## 26. W6 — bytes of RAM per 1M cached 1 KB entries
+
+Measured on the official box after the grid, so it perturbed nothing. Caps raised
+to **1536 MB for this metric only** and documented as its own configuration: 1M x
+1 KB is ~1 GB of values, which cannot fit under the 256 MB throughput cap, and a
+cap that forced eviction would measure the eviction policy instead of per-entry
+cost. Raw: `bench/results/w6/w6-raw.txt`.
+
+| arm | RSS delta | entries | **bytes/entry** | overhead over the 1024 B value |
+|---|---|---|---|---|
+| **P-opt (pg_resp)** | 1,210,765,312 | 999,986 | **1,210** | 186 B |
+| R-opt (Redis) | 1,345,163,264 | 999,986 | **1,345** | 321 B |
+| V-opt (Valkey) | 1,353,830,400 | 999,986 | **1,353** | 329 B |
+
+**pg_resp is ~10% leaner per entry than both incumbents**, and the result runs
+against the allocator handicap rather than with it: pg_resp uses glibc malloc while
+Redis and Valkey use jemalloc 5.3.0 (§10), which is generally *stronger* at this
+allocation pattern. The gap is therefore not an allocator artefact.
+
+**K-pg is reported differently, per D17** — its cache is PostgreSQL tables on disk,
+so an RSS figure would understate it by design:
+
+```
+rkey     999,986 rows    135,880,704 bytes
+rstring  999,986 rows  1,193,205,760 bytes
+total on disk          1,329,086,464 bytes  = 1,329 bytes/entry
+plus shared_buffers    1 GB
+```
+
+So K-pg costs ~1.33 GB of disk **plus** a 1 GB buffer pool for the same 1M
+entries, against pg_resp's 1.21 GB of RSS and nothing else.
+
+### Correction to the documented per-entry constant
+
+`docs/ops.md` carries `PER_ENTRY_OVERHEAD_BYTES = 96` with a stated real range of
+~71-134 B/entry and "~40 MB unaccounted at 1M entries near a resize". The measured
+overhead here is **186 B/entry**, i.e. ~186 MB against ~96 MB accounted — about
+**90 MB unaccounted at 1M entries**, roughly double what ops.md documents. The
+accounting constant is not wrong as an accounting constant, but the gap between it
+and real RSS is larger than recorded, and an operator sizing a box from the
+documented figure would under-provision. `ops.md` needs updating.
+
+**Caveat on the method:** the figure is a cgroup `memory.current` delta, which
+includes page cache and any other memory the container touched during the fill,
+not a pure heap measurement. It is therefore an upper bound on per-entry cost and
+is the same upper bound for all three arms, measured identically.
+
+## 27. Demo 3 (G4) — the rate-limiter crossover is not reached at realistic concurrency
+
+8 concurrent limiter clients, unpipelined `INCR` + conditional `EXPIRE`, 30 s,
+client pinned `4-7`, server pinned `0-3`, one arm live at a time. Raw:
+`bench/results/demo3/`.
+
+| arm | checks/s | p50 | p99 | errors | enforcement |
+|---|---|---|---|---|---|
+| pg_resp | 104,936 | 74 us | 101 us | 0 | verified |
+| Redis (R-opt) | 106,036 | 72 us | 117 us | 0 | verified |
+
+Ratio 0.99x — **a tie, and it is a tie for a reason that is not about either
+server.** At 8 connections with no pipelining this workload is round-trip-bound,
+and it lands on the same ~100k ops/s ceiling the grid's `p1-c8` cells reach for
+every in-memory arm (§21.4's transport ceiling in its unpipelined form).
+
+**So the honest G4 statement is a bound, not a crossover:** up to at least
+~105,000 rate-limit checks per second on this hardware, at realistic limiter
+concurrency, the second service buys you nothing measurable — both answers are
+identical and both are limited by the network round trip rather than by the cache.
+A crossover certainly exists above that, and §21.3's supplementary cell shows where
+it comes from: a Redis permitted more than one I/O thread reaches 1.79x pg_resp's
+throughput at 64 B. Locating the crossover precisely would need a pipelined or
+multi-threaded client configuration, which is a different experiment and is not
+claimed here.
+
+Both runs passed the limiter's own enforcement assertion with zero errors, so both
+numbers describe a limiter that actually limited.
