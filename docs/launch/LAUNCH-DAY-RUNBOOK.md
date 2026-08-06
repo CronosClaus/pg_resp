@@ -3,13 +3,33 @@
 One page. Written to be followed, not read. Nothing here is automated and nothing
 here should be delegated: every step is a judgement call or a posting action.
 
+## Calendar
+
+**T-0 = Tuesday 11 August 2026, thread window from ~14:00 UTC.**
+
+| when | date | what |
+|---|---|---|
+| T-5 | Thu 6 Aug | pgrx issues filed ([#2365](https://github.com/pgcentralfoundation/pgrx/issues/2365), [#2366](https://github.com/pgcentralfoundation/pgrx/issues/2366)) — **done**, and now aging |
+| T-1 | **Mon 10 Aug** | the T-1 day block below |
+| T-0 | **Tue 11 Aug, from ~14:00 UTC** | Release object → PGXN upload → HN |
+| T+1 | Wed 12 Aug | r/PostgreSQL |
+| T+2 | Thu 13 Aug | r/rust |
+
+**If you prefer Wednesday 12 August instead, every row shifts +1 day** — T-1 becomes
+Tue 11 Aug, and r/rust lands Fri 14 Aug, which is the weakest slot of the week. That
+is the one argument for Tuesday: it keeps both Reddit follow-ups inside the working
+week.
+
+14:00 UTC is 10:00 US Eastern / 07:00 Pacific — HN's front page is decided largely by
+US morning traffic, and you need to be awake and free for the two hours after.
+
 ## T-minus checklist
 
 Owner column is not decoration — **H** items need your account, your judgement or
 your machine, and cannot be delegated. **A** items are verification the agent can run
 and report on.
 
-### T-1 day
+### T-1 day — Mon 10 Aug
 
 | ✓ | owner | item |
 |---|---|---|
@@ -18,11 +38,12 @@ and report on.
 | ☐ | **A** | Cold-pull the published `0.1.0` and run the three README commands end to end |
 | ☐ | **H** | **Contributor-graph check: the `claudiucarare` chip must have cache-flipped to `CronosClaus`.** GitHub's contributor cache lags a history rewrite by hours to days. **If it is still stale at T-1, escalate to me — do not announce with a work-email chip visible on the repo landing page.** |
 | ☐ | **H** | Record the demo clip per [`DEMO-SCRIPT.md`](DEMO-SCRIPT.md); agent reviews the `.cast` timing before it embeds |
-| ☐ | **H** | Read the Release notes draft end to end as an outsider would |
-| ☐ | **H** | **File the two pgrx issues** (`docs/upstream/` 01 and 03 only — 02 is withdrawn, 04 is not-for-filing) and record the URLs in that README. **Do this days ahead, not at T-0:** aging is the point, and the launch post links the URLs, so they must exist before the post is final |
+| ☐ | **H** | Read the Release notes **and the launch post** (`LAUNCH-POST.md`) end to end as an outsider would |
+| ☐ | **H** | Check both pgrx issues for maintainer replies — if either was closed as intended-behaviour, the launch post's wording needs adjusting before it goes out |
+| ☑ | **H** | ~~File the two pgrx issues~~ **DONE Thu 6 Aug** — [#2365](https://github.com/pgcentralfoundation/pgrx/issues/2365), [#2366](https://github.com/pgcentralfoundation/pgrx/issues/2366), recorded in `docs/upstream/README.md` and linked from the launch post |
 | ☐ | **A** | Validate `META.json` against the **official** PGXN Meta schema (fetch it, or use the `pgxn_meta` validator). Structural validation is already done; this closes it. **No live-fire discovery at T-0** |
 
-### T-1 hour
+### T-1 hour — Tue 11 Aug, ~13:00 UTC
 
 | ✓ | owner | item |
 |---|---|---|
@@ -33,7 +54,7 @@ and report on.
 | ☐ | **H** | Actions tab green — a red badge on launch day reads as abandonment |
 | ☐ | **H** | Two uninterrupted hours actually available. If not, **postpone** |
 
-### T-0
+### T-0 — Tue 11 Aug, from ~14:00 UTC
 
 | ✓ | owner | item |
 |---|---|---|
@@ -47,7 +68,8 @@ and report on.
 **1. GitHub Release object first.** Paste `RELEASE-NOTES-v0.1.0.md`. Everything else
 links here, so it must exist before any link to it does.
 
-**2. Hacker News second, and alone.** Title suggestion:
+**2. Hacker News second, and alone.** Text: [`LAUNCH-POST.md`](LAUNCH-POST.md).
+Title:
 
 > pg_resp: a Redis-protocol cache server inside a Postgres background worker
 
