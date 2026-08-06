@@ -96,8 +96,16 @@ Two things live outside that sum:
    per million entries. Erring high here costs headroom; erring low costs an OOM.
 2. **Allocator and process overhead.** The worker is a process: stacks, the
    `mio` poll state, read and write buffers (bounded by
-   `MAX_PENDING_WRITE_BYTES`, 64 MB per connection with bytes owed), jemalloc's
-   own arenas and fragmentation.
+   `MAX_PENDING_WRITE_BYTES`, 64 MB per connection with bytes owed), and the
+   allocator's own arenas and fragmentation.
+
+   **The allocator is glibc malloc, not jemalloc.** An earlier revision of this
+   sentence said jemalloc; pg_resp has no `jemallocator` dependency and uses
+   Rust's default system allocator. Redis and Valkey use jemalloc 5.3.0, so the
+   mistake was in the flattering direction — jemalloc is generally stronger at
+   this allocation pattern. Corrected here as it was in
+   `bench/configs/README.md`. Moving pg_resp to jemalloc is a v0.2 item,
+   deliberately not done mid-benchmark-phase.
 
 Measured on the Phase 2 soak — 30 minutes, 1 KB values, `max_memory = 256MB`,
 store warm and at its budget — the worker's `VmRSS` plateaued at **291,908 kB
@@ -112,7 +120,9 @@ than a guarantee. The 1M-entry measurement is consistent with this: 1,210,765,31
 bytes of RSS against ~1,130,000,000 accounted (1M x [1024 value + ~10 key + 96])
 is a ratio of **~1.07** — inside the 1.15 planning figure, so that figure stands.
 It is the *per-entry overhead constant* above that was understated, not this
-ratio. It is one measurement on one workload, and the ratio is
+ratio.
+
+The ratio remains one measurement on one workload, and it is
 workload-dependent in a predictable direction: with 1 KB values the 96-byte
 constant is ~9% of an entry, but with 64-byte values it is larger than the value
 itself, so a cache of small entries carries proportionally far more overhead per
