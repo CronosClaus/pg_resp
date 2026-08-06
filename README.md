@@ -1,10 +1,13 @@
 # pg_resp
 
 > **DRAFT — PENDING HUMAN REVIEW. Not announced anywhere.**
-> The first screen below is a draft for external review (Phase 4 W7/W14).
-> Benchmark figures marked `PENDING` are deliberately empty: the measured grid is
-> running, and a placeholder number in a README is the one thing this project
-> cannot afford. Nothing here is published until the numbers are in and reviewed.
+> Draft for external review (Phase 4 W7/W14). Nothing here is published until
+> reviewed.
+>
+> **Every throughput, latency and memory figure below is measured**, on a dedicated
+> box, 3×60s per cell with a spread gate, from committed raw artifacts. Two things
+> remain `PENDING` and are deliberately left empty rather than estimated: demo 2's
+> stale-serve counts, and the container image that does not exist until release.
 
 **A Redis-protocol (RESP2) cache server that runs inside a PostgreSQL background
 worker.** `redis-cli` connects to your database and it answers. One fewer service
@@ -55,7 +58,8 @@ review.
 That difference is what [demo 2](demos/2-trigger-invalidation/) measures: the same
 application, one arm invalidating in application code with one realistically
 forgotten path, the other using a trigger, and a stale-serve count under a write
-storm. `PENDING — measured figures`
+storm. The stale-serve counts are **not yet measured** — that demo's numbers are
+outstanding, and no figure is quoted here until they exist.
 
 ## Do **not** use pg_resp if
 
@@ -90,21 +94,106 @@ modes are in [`docs/ops.md`](docs/ops.md).
 
 ## Performance, honestly
 
-The pitch is consolidation and invalidation correctness. It is **not** raw speed,
-and any report claiming pg_resp is faster than Redis at raw ops/sec should be
-treated as a benchmark bug until proven otherwise — a rule this project applies to
-its own results.
+The pitch is consolidation and invalidation correctness, **not** raw speed. Every
+figure below comes from a committed raw artifact on a dedicated box, and the
+tables are generated from those artifacts rather than typed here. Method,
+environment and every limitation: [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md).
 
-| comparison | result |
-|---|---|
-| vs Redis / Valkey, raw throughput | `PENDING` — they are expected to win; every number is published including the losses |
-| vs Redka (architecture class) | `PENDING` — the structural claim, decided by the **weakest** measured cell rather than the best |
-| RAM per 1M cached 1 KB entries | `PENDING` |
+### Where Redis and Valkey win
 
-Method, environment, per-cell raw artifacts and every stated limitation:
-[`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) and
-[`bench/results/ENV.md`](bench/results/ENV.md). Every published figure has a
-committed raw file and a command that regenerates it.
+At 1 KB values with pipelining and a single connection, both beat pg_resp
+outright:
+
+| arm | ops/s | vs pg_resp |
+|---|---|---|
+| Valkey | 342,198 | **+19%** |
+| Redis | 335,933 | **+17%** |
+| pg_resp | 287,152 | — |
+
+*1 KB values, pipeline 16, 1 connection, 3×60s, median run.*
+
+### Where pg_resp edges ahead — and immediately loses again
+
+This is the honest exhibit, and it needs all three rows to mean anything:
+
+| arm | ops/s | p99 | CPU used |
+|---|---|---|---|
+| pg_resp | 1,203,400 | 0.991 ms | 1.05 cores |
+| Redis, `io-threads 1` (its default) | 1,095,843 | 1.703 ms | 1.02 cores |
+| **Redis, `io-threads 4`** | **2,151,675** | 0.671 ms | 2.80 cores |
+
+*64 B values, pipeline 16, 64 connections, over loopback, 3×60s. Both arms in the
+first comparison verified core-saturated. pg_resp authenticates every connection;
+the Redis arms do not.*
+
+pg_resp is **~10% faster than a single-threaded Redis** at this payload — and
+**1.79× slower than a Redis allowed its I/O threads**, on the same hardware. The
+first number is real and narrow; the second is the one that matters if you are
+choosing on throughput. Both are published because publishing only the first would
+be a lie of omission.
+
+### Memory: ~10% leaner per entry
+
+**pg_resp used 1,210 bytes per entry against Redis's 1,345 and Valkey's 1,353 —
+about 10% less — in this measurement.**
+
+*1M entries of 1 KB values, caps raised to 1536 MB for this metric, RSS measured as
+a cgroup `memory.current` delta (an upper bound including page cache, applied
+identically to all three arms).* The result runs **against** an allocator handicap
+rather than with it: pg_resp uses glibc malloc while both incumbents use jemalloc
+5.3.0, which is generally stronger at this allocation pattern.
+
+### vs Redka: the structural comparison
+
+**At worst 8.1×, and that is the number to argue with.** G3 asks for ≥5× and is
+decided by the *weakest* measured cell, not the average: at one connection with no
+pipelining, where both arms are bound by network round trips, pg_resp is 8.1×
+Redka-on-PostgreSQL. Every one of the 12 paired cells clears the bar, and the
+strongest reaches 111.7× (64 B, pipeline 16, 64 connections — where Redka's p99 is
+157 ms against pg_resp's 0.9 ms).
+
+The gap is architectural, not a tuning result: Redka's throughput sits at
+**~10,000 ops/s regardless of payload size**, which is what a per-operation cost
+looks like rather than a per-byte one. Each cache write is a transaction against
+indexed tables — ~2 row inserts and ~4 index scans per `SET`, counted from inside
+the same PostgreSQL. Redka's PostgreSQL is deliberately configured in *its* favour
+for these runs.
+
+One caveat that runs in our favour and is therefore stated here rather than in a
+footnote: Redka is unbounded where pg_resp evicts at its cap, so Redka usually had
+the *higher* hit rate — and a hit returns the value where a miss returns 5 bytes.
+That inflates the ratio. Per-cell hit rates are published.
+
+### Rate limiting: below ~105k checks/s, the second service buys you nothing
+
+| arm | checks/s | p50 | p99 |
+|---|---|---|---|
+| Redis | 106,036 | 72 µs | 117 µs |
+| pg_resp | 104,936 | 74 µs | 101 µs |
+
+*`INCR` + conditional `EXPIRE`, 8 concurrent clients, unpipelined, 30 s, limiter
+enforcement verified.* A tie — and a tie because at this concurrency the workload
+is bound by the network round trip, not by either cache. So the honest claim is a
+**bound, not a crossover**: up to at least ~105,000 rate-limit checks per second,
+the two answers are indistinguishable. Above that a crossover certainly exists —
+see the `io-threads` row above for where Redis's headroom comes from.
+
+### What is not measured
+
+**16 KB values are absent from the tables, and that is a limitation of our
+benchmark client, not of pg_resp.** The pinned `memtier_benchmark` collapses by
+three orders of magnitude at exactly a 16,384-byte payload; `redis-benchmark`
+against the same server shows no such effect:
+
+| data-size | redis-benchmark | memtier_benchmark |
+|---|---|---|
+| 16,340 B | 20,000 req/s | 21,476 ops/s |
+| **16,384 B** | **19,355 req/s** | **24.5 ops/s** |
+| 32,768 B | 16,216 req/s | — |
+
+pg_resp serves 16 KB and 32 KB values fine. Every ranked cell in this document
+comes from one pinned client, so rather than mix clients in one table we publish
+the gap and its proof. Full account: [`ENV.md`](bench/results/ENV.md) §22, §25.
 
 ## Install
 
