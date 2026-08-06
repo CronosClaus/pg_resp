@@ -1,0 +1,100 @@
+# Launch-day runbook — for the human to execute
+
+One page. Written to be followed, not read. Nothing here is automated and nothing
+here should be delegated: every step is a judgement call or a posting action.
+
+## Before you post anything (10 minutes)
+
+- [ ] `docker rmi ghcr.io/cronosclaus/pg_resp:0.1.0` then run the three README
+      commands. If the quickstart is broken on launch day, nothing else matters.
+      It has broken once already.
+- [ ] Open the README on github.com and click **every** intra-repo link. Relative
+      links resolve differently in rendered Markdown than on disk.
+- [ ] Confirm `ghcr.io/cronosclaus/pg_resp:0.1.0` still shows **Public**.
+- [ ] Check the security inbox (`ccclaudiucarare@gmail.com`) is reachable and you
+      will see mail on your phone.
+
+## Posting order, and why
+
+**1. GitHub Release object first.** Paste `RELEASE-NOTES-v0.1.0.md`. Everything else
+links here, so it must exist before any link to it does.
+
+**2. Hacker News second, and alone.** Title suggestion:
+
+> pg_resp: a Redis-protocol cache server inside a Postgres background worker
+
+Do **not** post to Reddit in the same hour. HN's first hour decides the outcome and
+you cannot answer two threads at once — and you will need to answer, because the
+comments that matter will be methodology challenges.
+
+Post when you can sit with it for **two uninterrupted hours**. If you cannot, post
+tomorrow.
+
+**3. r/PostgreSQL, then r/rust — next day, not the same day.** Different framing per
+sub: PostgreSQL cares about the operational story and the trigger invalidation;
+r/rust cares about pgrx and the bgworker socket architecture. Do not cross-post the
+same text.
+
+## First-hour monitoring list
+
+| what | where | why |
+|---|---|---|
+| the HN thread | your submission | first-hour replies decide reach |
+| GitHub issues | repo → Issues | someone will hit the container-loopback flag |
+| GitHub Discussions/PRs | repo | drive-by "why not X" questions |
+| **security inbox** | `ccclaudiucarare@gmail.com` | the one channel that cannot wait |
+| Actions tab | repo → Actions | a red CI badge on launch day reads as abandonment |
+
+Refresh the HN thread every ~10 minutes for the first hour. Reply to substance,
+ignore taste.
+
+## Pre-drafted holding replies
+
+Use these as starting text, not verbatim. Adapt to the actual comment — a canned
+reply reads as canned.
+
+### Class 1 — benchmark methodology challenge
+
+> Fair challenge, and the raw data is in the repo so you can check me. Every cell is
+> 3×60s with an 8% run-to-run spread gate, one arm live at a time, and every table is
+> generated from committed raw artifacts by `bench/harness/curve.py` rather than
+> typed. The specific thing I'd point you at is `ENV.md` §21–§25: it documents the
+> confounds I got wrong first, including a 41 ms artifact that made all four servers
+> look identical and turned out to be client-side, and the fact that I couldn't
+> reproduce it afterwards. If you think a specific cell is unsound, tell me which and
+> I'll re-run it.
+
+**If they are right, say so immediately and fix it in public.** That is worth more
+than the benchmark.
+
+### Class 2 — "why not just use Redis"
+
+> You probably should, and the README says so. Redis is faster — Valkey is +19% at
+> 1 KB in my own numbers, and a Redis with `io-threads 4` beats pg_resp by 1.79×.
+> The pitch isn't speed, it's one fewer stateful service and cache invalidation as a
+> schema property instead of an application-discipline problem. If your cache is
+> already fine and your invalidation is already correct, pg_resp buys you nothing.
+
+### Class 3 — "useless on RDS / managed Postgres"
+
+> Correct, and it's a real limitation rather than an oversight. pg_resp needs
+> `shared_preload_libraries` and a restart, so it cannot run on a managed provider
+> that doesn't allow custom extensions. That rules out RDS, Cloud SQL and most
+> managed offerings today. It's for self-hosted Postgres — VMs, containers,
+> Kubernetes operators. I'd rather say that plainly than imply otherwise.
+
+## Things not to do
+
+- Do not argue about the 64 B cell where pg_resp is ~10% ahead of single-threaded
+  Redis. **Concede it fast** — point at the `io-threads 4` row where Redis wins by
+  1.79× and move on. That cell is the most attackable number in the project and the
+  honest framing is already published.
+- Do not promise features in comments. "Logged as an issue" is the whole answer.
+- Do not respond to hostility. The paper trail argues better than you will.
+
+## If something is actually broken
+
+1. Reproduce it before believing it, and before fixing it.
+2. Say so in the thread within the hour, with what you know and what you don't.
+3. Fix forward — `0.1.1` with a note beats a silent force-push, and this repo's
+   credibility rests on visible corrections.
