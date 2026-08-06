@@ -1443,9 +1443,8 @@ before the rewrite and therefore names a dead commit.
 It is **checkable rather than merely asserted**, three ways:
 
 1. the mapping table above translates the label's SHA to the live one;
-2. the pre-rewrite history is preserved in a local mirror clone,
-   `../pg_resp-backup-pre-rewrite`, old head **`313830d`**, where the label's SHA
-   resolves normally;
+2. the pre-rewrite history is preserved in a **private mirror held by the
+   maintainer** (old head **`313830d`**), where the label's SHA resolves normally;
 3. `crates/` is byte-identical across the rewrite, so the label naming a dead commit
    changes nothing about what the image contains.
 
