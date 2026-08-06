@@ -11,7 +11,7 @@
 | ref-digester | haiku (Haiku 4.5) | agent frontmatter |
 | escalation | /model opus | manual, on trigger below |
 
-`CLAUDE_CODE_SUBAGENT_MODEL` was **removed** from settings in `87d267e`: it
+`CLAUDE_CODE_SUBAGENT_MODEL` was **removed** from settings in `4f68e86`: it
 forces every subagent to one model, which silently overrode per-agent choices.
 Models are pinned in each agent's own frontmatter now, which is why the table
 above lists them individually.
@@ -48,7 +48,7 @@ agent's half of the contract is everything between.
 
 ### Access
 - Connect as **`bench@IP` only, never root.** `Bash(ssh:*)`, `Bash(scp:*)`,
-  `Bash(rsync:*)` are in the settings allow list for this (`e5cefc9`).
+  `Bash(rsync:*)` are in the settings allow list for this (`ef951ef`).
 - The box holds **no secret that outlives it**: a freshly generated throwaway
   `pg_resp.password` is created at bootstrap, never the dev literal
   (`secret123`). It may appear in `ENV.md` because the box is destroyed.

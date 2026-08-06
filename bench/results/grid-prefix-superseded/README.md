@@ -6,7 +6,7 @@
 Superseded for two independent reasons:
 
 1. They were measured against the pg_resp image built **before** the
-   `TCP_NODELAY` fix on accepted sockets (fixed at commit `5e725fb`). The
+   `TCP_NODELAY` fix on accepted sockets (fixed at commit `fbdcbbd`). The
    re-measured cells come from the post-fix image, and mixing the two would put
    figures from two different artifacts in one table.
 2. The run they belong to was stopped mid-grid, so they cover one arm only and

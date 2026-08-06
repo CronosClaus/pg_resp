@@ -23,7 +23,7 @@ reconstructed.
 | Virtualization | WSL2. Hypervisor overhead affects both latency and throughput; these numbers are not comparable to bare metal. |
 | Client placement | **same machine as the server, unpinned.** Client and server contend for the same 12 logical CPUs. This skews in both directions (client steals server CPU; server steals client CPU) and is a stated limitation, not a controlled variable. |
 | PostgreSQL | 18.4 (`~/.pgrx/data-18`, pgrx-managed) |
-| pg_resp commit | `0eb1057` |
+| pg_resp commit | `61dc291` |
 | memtier_benchmark | commit `272eeb6` (matches `docs/refs/PINS.md`), `v=255.255.255`, libevent 2.1.12-stable, OpenSSL 3.0.2 |
 
 ### pg_resp GUCs live on the measured instance
@@ -986,7 +986,7 @@ It is refuted by the table above: **Redis sets `TCP_NODELAY` and collapses
 identically.** memtier also sets it on its own sockets
 (`shard_connection.cpp:424` at the pinned commit), so neither end of the
 connection has Nagle enabled at all. The option was fixed anyway as hygiene
-(commit `5e725fb`) — it belongs on a cache's sockets — but it is **not** the cause
+(commit `fbdcbbd`) — it belongs on a cache's sockets — but it is **not** the cause
 of this and must never be reported as such.
 
 ### The actual cause, and a 44-byte boundary
@@ -1097,7 +1097,7 @@ above and that run, and both plausibly contributed:
 - **`--rerun-on-spread` began actually working** (§24's sibling finding: the flag
   had been an accepted no-op). A cell now gets a second attempt and keeps the
   tighter one, which converts a marginal cell into a passing one.
-- **`TCP_NODELAY` was set on accepted sockets** (commit `5e725fb`). Measured inert
+- **`TCP_NODELAY` was set on accepted sockets** (commit `fbdcbbd`). Measured inert
   at 1 KB on a *stable* cell (+1.65% inside a 2.38% own-spread), but an option that
   removes a latency interlock could plausibly reduce variance on an *unstable* one
   without moving the median. That is a hypothesis and is not claimed as the cause.
@@ -1108,7 +1108,7 @@ publishable, so the "no publishable figure" consequence above did not
 materialise.** The characterisation stays on the record because it was true of the
 configuration it described.
 
-## 24. `TCP_NODELAY` fixed at commit `5e725fb`
+## 24. `TCP_NODELAY` fixed at commit `fbdcbbd`
 
 pg_resp now sets `TCP_NODELAY` on accepted sockets, as Redis and Valkey do. It was
 previously set only on `resp-client`'s outbound loopback socket.
@@ -1126,7 +1126,7 @@ Within the cell's own run-to-run spread, i.e. no detectable change — which is 
 expected and desired result. It is recorded as a verification that the fix is
 inert at this payload size, **not** as a performance improvement.
 
-Every cell measured before `5e725fb` is superseded and archived in
+Every cell measured before `fbdcbbd` is superseded and archived in
 `bench/results/grid-prefix-superseded/`. No published table mixes pre- and
 post-fix figures.
 
@@ -1383,11 +1383,11 @@ assurance.
 
 | | commit | image |
 |---|---|---|
-| benchmark box (all §10 numbers, W6, demo 3) | `50b2e46` | local build, id `sha256:e887058aa174…` |
+| benchmark box (all §10 numbers, W6, demo 3) | `56f53c5` | local build, id `sha256:e887058aa174…` |
 | published rc | HEAD at dispatch | GHCR, digest from the workflow run |
 
 ```
-$ git diff --stat 50b2e46..HEAD -- crates/
+$ git diff --stat 56f53c5..HEAD -- crates/
 (no output)
 ```
 
@@ -1406,3 +1406,29 @@ and check it.
 be re-measured rather than carried forward.** That is the rule this section exists
 to make checkable: the diff command is the test, and an empty result is the only
 passing outcome.
+
+### Commit-SHA mapping after the identity rewrite
+
+The history was rewritten before the `v0.1.0` tag to remove a work-email identity
+(one author identity now, plus `Claude Opus 5` via `Co-Authored-By` trailers). Every
+commit SHA therefore changed.
+
+**Prose files were remapped to the new SHAs. Raw benchmark artifacts were NOT
+touched** — the `.txt` memtier outputs, `.json` cell summaries, `.tsv` progress log
+and `grid-run.log` still carry the pre-rewrite SHAs in their headers, and they stay
+that way on purpose. Those files are evidence; editing them after the fact to look
+consistent is the failure mode this whole document exists to avoid. A header saying
+it was produced at a commit that no longer exists is honest and traceable through
+the map below.
+
+The two SHAs that appear in raw artifact headers:
+
+| pre-rewrite | post-rewrite | what it was |
+|---|---|---|
+| `50b2e46` | `56f53c5` | the commit the benchmark box's image was built from — §28's reconciliation |
+| `d2c8c0a` | see `git log` | the grid runner's head during the final Stage B run |
+
+The published `0.1.0-rc` GHCR image is **unaffected**: a container image is
+addressed by content digest, not by git ref, so the artifact users pull is the same
+bytes it was before the rewrite. Its `org.opencontainers.image.revision` label
+records a pre-rewrite SHA, which maps through the same table.

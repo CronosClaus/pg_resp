@@ -7,7 +7,7 @@ detached on the box and this file says what was decided, what is done, and where
 to resume. Updated at every stage boundary.
 
 **Box:** `bench@188.34.158.72` (CCX33, 8 vCPU). Creation/destruction human-only.
-**Repo head at start:** `6656815`. **Grid launched at:** `b6d38cc`.
+**Repo head at start:** `5ba0afc`. **Grid launched at:** `51d79e8`.
 
 ---
 
@@ -87,9 +87,9 @@ tables — no mixed-protocol tables.** Stage A survives only as the v1 record in
 
 - [x] Orphan check: no tmux sessions, no containers, 204 GB free
 - [x] State file created (this file)
-- [x] Harness: saturation sampling + live-config capture + warm-up v2 + curve.py golden test — **committed before any grid cell** (`c1921ce`, `4122315`, `9ffedfb`, `b6d38cc`)
-- [x] Grid launched detached — tmux session `grid`, started **2026-08-05T19:36:57Z** at head `b6d38cc`. ETA ~6.5 h (~02:00 UTC)
-- [x] Local drafts done while grid runs: BENCHMARKS.md prose (`1a4f704`), README first screen (`53d3b9f`), demo 3 built (`a06e104`)
+- [x] Harness: saturation sampling + live-config capture + warm-up v2 + curve.py golden test — **committed before any grid cell** (`5fa1b32`, `7e34dd5`, `6d511f6`, `51d79e8`)
+- [x] Grid launched detached — tmux session `grid`, started **2026-08-05T19:36:57Z** at head `51d79e8`. ETA ~6.5 h (~02:00 UTC)
+- [x] Local drafts done while grid runs: BENCHMARKS.md prose (`9f58a77`), README first screen (`1477572`), demo 3 built (`0a436b2`)
 - [x] ~~Grid STOPPED at 12/108~~ superseded; final run COMPLETE at 75/75 — systemic harness failure, see "Grid stop" below. Box left UP. No protocol changed.
 - [ ] Raw results rsynced and **committed before analysis**
 - [ ] Curve tables v2 + publishability stamps + computed G3 verdict
@@ -214,7 +214,7 @@ tripped the 20% stop.** That is a real hole in the guardrail, not a nuisance.
 ## What is preserved
 
 12 cells (all `P-def`, 64 B and 1 KB), raw artifacts + run log + progress TSV,
-committed at `e644778`. These payloads are unaffected by the 41 ms artefact
+committed at `12fabf8`. These payloads are unaffected by the 41 ms artefact
 (1 KB unpipelined measures 25,753 ops/s at 38 us) and remain valid data.
 
 ## Decisions needed from the human — I am not authorized to improvise these
@@ -241,20 +241,20 @@ without touching anything else.
 
 # RESUMED after decisions — 2026-08-05T21:16:59Z
 
-All three decisions executed. Grid relaunched **detached** at head `76ee662`,
+All three decisions executed. Grid relaunched **detached** at head `7261a86`,
 90 cells (6 arms x 15 workloads x 3 connection counts), post-fix image built
 21:02:58Z. ETA ~02:25Z.
 
 ## What was done
 
-**D3 — `TCP_NODELAY` fixed** (`5e725fb`), image rebuilt, and verified inert at
+**D3 — `TCP_NODELAY` fixed** (`fbdcbbd`), image rebuilt, and verified inert at
 1 KB exactly as expected: `P-def d1024-p16-c8` 391,697 -> 398,154 ops/s, **+1.65%
 against that cell's own 2.38% spread**. Recorded as a verification, not a
 performance claim (ENV.md §24). The 12 pre-fix cells are archived in
 `bench/results/grid-prefix-superseded/` with a README stating they can never be
 published — pre-fix image *and* a one-arm stopped grid.
 
-**D2 — hard stop widened** to `VOIDED + UNPUB` (`5e725fb`), so a grid where every
+**D2 — hard stop widened** to `VOIDED + UNPUB` (`fbdcbbd`), so a grid where every
 cell blows the spread gate now stops itself instead of running to completion at a
 0% void rate. And the two blown cells were repeated first, as asked:
 `d1024-p16-c64` reproduced at **27.66%** (was 27.23%) — reproducibly unstable;
@@ -278,7 +278,7 @@ are never presented as any server's numbers.
 
 ## Also fixed, because it bit twice
 
-`bench/harness/box/sync.sh` (`50b2e46`). Results produced on the box as untracked
+`bench/harness/box/sync.sh` (`56f53c5`). Results produced on the box as untracked
 files then committed from the workstation made every later `git pull` on the box
 abort — which once left the box running a `sweep.py` without `--warmup-keys`, and
 once let a background image rebuild start against the **old tree** because the
@@ -296,7 +296,7 @@ delete is byte-identical to `origin/master`.
 
 ---
 
-# RESTART 2 — 2026-08-05T21:36:18Z, head `d2c8c0a`
+# RESTART 2 — 2026-08-05T21:36:18Z, head `6e80283`
 
 The 21:16 launch was killed at ~7 cells and restarted, deliberately, so the run
 is homogeneous. Reason: **`--rerun-on-spread` was an accepted no-op.**
@@ -308,7 +308,7 @@ nowhere in the logic. Stage A never noticed because all 18 of its cells passed t
 gate first time; it surfaced only because a grid cell reported 9.91% spread and
 produced no second attempt.
 
-Implemented (`d2c8c0a`) as a genuine repeat with fresh CPU samples, keeping the
+Implemented (`6e80283`) as a genuine repeat with fresh CPU samples, keeping the
 tighter attempt and retaining **both** raw outputs under explicit ATTEMPT 1 /
 ATTEMPT 2 banners. Single-shot by design: §12 says re-run *once*, and a cell
 unstable twice is a finding to publish rather than a dice roll to repeat until it
@@ -331,7 +331,7 @@ ETA ~02:55Z. Monitor re-armed, now also watching for RE-RUNNING events.
 
 ---
 
-# RESTART 3 — 2026-08-05T22:32:30Z, head `0c7300d`, 72 cells
+# RESTART 3 — 2026-08-05T22:32:30Z, head `9ceeab5`, 72 cells
 
 **16 KB is parked entirely.** Its pipeline-16 cells fail too (4,609 ops/s, p99
 pinned at 41.2 ms, server at 1.8% CPU) and controlled probes do not reproduce

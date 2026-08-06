@@ -7,7 +7,7 @@ session can resume without the conversation that produced these decisions
 
 **Session date:** 2026-08-05. **Branch:** `master`, pushed to
 `https://github.com/CronosClaus/pg_resp` (public).
-**Head at time of writing:** `87d267e`.
+**Head at time of writing:** `4f68e86`.
 
 ---
 
@@ -124,27 +124,27 @@ are kept and the supersession is noted, because the reasoning matters.
 
 | item | status | evidence |
 |---|---|---|
-| **W0** — R6 cold-build gate | **DONE** | `053ee41`. `cargo clean` removed 11,150 files / 4.4 GiB; `pgrx-pg-sys` regenerated `pg18.rs` (2,201,278 B) — first proven from-scratch bindgen since Phase 0. Build 1m10s. R1 **119/119** (22 client + 45 proto + 52 store), R1b **76/76**, clippy `--all-targets` clean, `cargo fmt --check` clean |
-| **W1** — CI matrix PG 16/17/18 | **DONE** | `2a08732` (workflow) + `ff35141` (fix). Run `31023715193` on `ff35141`: **all four jobs success** — fast loop 28s, PG16 24m31s, PG17 5m29s, PG18 12m44s, `cargo pgrx test` passing on all three legs. First passing test runs ever for PG 16 and 17. `target/` uncached by design; distro `libclang-dev` with an assertion that no vendored libclang is in play |
+| **W0** — R6 cold-build gate | **DONE** | `adb2284`. `cargo clean` removed 11,150 files / 4.4 GiB; `pgrx-pg-sys` regenerated `pg18.rs` (2,201,278 B) — first proven from-scratch bindgen since Phase 0. Build 1m10s. R1 **119/119** (22 client + 45 proto + 52 store), R1b **76/76**, clippy `--all-targets` clean, `cargo fmt --check` clean |
+| **W1** — CI matrix PG 16/17/18 | **DONE** | `ec2632f` (workflow) + `90595bb` (fix). Run `31023715193` on `90595bb`: **all four jobs success** — fast loop 28s, PG16 24m31s, PG17 5m29s, PG18 12m44s, `cargo pgrx test` passing on all three legs. First passing test runs ever for PG 16 and 17. `target/` uncached by design; distro `libclang-dev` with an assertion that no vendored libclang is in play |
 | **W2** — SCAN interleaving proptest (filler) | **OPEN** | Designated filler (kickoff amendment 6). Not started. Must not displace critical path |
-| **W3** — bench harness + configs | **DONE** | `a874001`, then extended in `9c44da3` and `87d267e`. `bench/harness/sweep.py`, `bench/configs/*` (6 arms). Parser validated against a committed artifact: reproduces ENV.md §4's 4×8/p16 row exactly (217,317.85 ops/s, p99 3.823) |
-| **W4** — six-arm stand-up | **DONE (dev box, with a stated limit)** | `1560bd3` + `9c44da3`. `bench/harness/arms.sh`. R-def/R-opt/V-opt verified live by SET/GET round-trip; K-pg built from redka's own Dockerfile at pinned `d3c353f02470` and **verified PG-backed** (ENV.md §6). Limit: on WSL2 only P-* is reachable from where memtier runs — see §D.2 |
-| **W5-dry** — Stage A dry run | **DONE as harness validation** | `9c44da3`, `87d267e`. Full mechanism exercised: password read from live instance, exclusivity, warm-up, NOAUTH=0, hit-rate guard, per-run parse, median run, spread, verbatim rerun line. **No cross-arm cell has been run anywhere** |
+| **W3** — bench harness + configs | **DONE** | `110dbcf`, then extended in `cb1a7fd` and `4f68e86`. `bench/harness/sweep.py`, `bench/configs/*` (6 arms). Parser validated against a committed artifact: reproduces ENV.md §4's 4×8/p16 row exactly (217,317.85 ops/s, p99 3.823) |
+| **W4** — six-arm stand-up | **DONE (dev box, with a stated limit)** | `0c1aed6` + `cb1a7fd`. `bench/harness/arms.sh`. R-def/R-opt/V-opt verified live by SET/GET round-trip; K-pg built from redka's own Dockerfile at pinned `d3c353f02470` and **verified PG-backed** (ENV.md §6). Limit: on WSL2 only P-* is reachable from where memtier runs — see §D.2 |
+| **W5-dry** — Stage A dry run | **DONE as harness validation** | `cb1a7fd`, `4f68e86`. Full mechanism exercised: password read from live instance, exclusivity, warm-up, NOAUTH=0, hit-rate guard, per-run parse, median run, spread, verbatim rerun line. **No cross-arm cell has been run anywhere** |
 | **W5-official** | **BLOCKED — pause 1** | Needs the bench box |
 | **W6** — RAM per 1M entries | **OPEN** | Needs the box. Allocator caveat pre-written (ENV.md §10), D17 note in `docs/BENCHMARKS.md` |
-| **W7** — README rewrite | **OPEN** | `docs/BENCHMARKS.md` scaffold exists (`87d267e`) with the architectural section written and all throughput sections marked PENDING |
-| **W8** — ops.md 8 GB worked example | **DONE** | `1560bd3`. Three-tenant table, measured RSS multiplier (285 MiB / 256 MiB = **1.11**), the 96-byte constant's real range (~71–134 B/entry, so ~40 MB unaccounted at 1M entries near a resize), OOM rule, cold-start stampede as caveat #1. Blast-radius already current from Phase 3 — unchanged |
+| **W7** — README rewrite | **OPEN** | `docs/BENCHMARKS.md` scaffold exists (`4f68e86`) with the architectural section written and all throughput sections marked PENDING |
+| **W8** — ops.md 8 GB worked example | **DONE** | `0c1aed6`. Three-tenant table, measured RSS multiplier (285 MiB / 256 MiB = **1.11**), the 96-byte constant's real range (~71–134 B/entry, so ~40 MB unaccounted at 1M entries near a resize), OOM rule, cold-start stampede as caveat #1. Blast-radius already current from Phase 3 — unchanged |
 | **W9** — packaging | **OPEN** | SECURITY.md contact supplied. GHCR is pause 2 |
 | **W10** — G1 quickstart measurement | **BLOCKED** | Runs on the box; depends on W9's public GHCR image |
-| **W11** — demo 3 (rate limiter) | **OPEN** | Demo 1 cut → v0.2 backlog (bible §11 amended in `87d267e`) |
-| **W12** — pgrx issue drafts | **DONE — draft only** | `053ee41`. `docs/upstream/`: 01 (`#[pg_trigger]`) and 03 (`GucSetting::get()`) stand; **02 WITHDRAWN** — see §D.1 |
+| **W11** — demo 3 (rate limiter) | **OPEN** | Demo 1 cut → v0.2 backlog (bible §11 amended in `4f68e86`) |
+| **W12** — pgrx issue drafts | **DONE — draft only** | `adb2284`. `docs/upstream/`: 01 (`#[pg_trigger]`) and 03 (`GucSetting::get()`) stand; **02 WITHDRAWN** — see §D.1 |
 | **W13** — full regression sweep | **OPEN** | Before the tag. R2/R3 delegated to compat-runner/differential-triager (models now pinned) |
 | **W14** — tag + launch post | **BLOCKED — pause 4** | Drafts only; needs W13 all-green and external review |
 | **W15** — `/phase-report 4` | **OPEN** | Must log the demo-1 cut explicitly (kickoff decision 4) |
 
 **Housekeeping done:** `Bash(git push:*)` removed from the settings deny list
-(`053ee41`); `CLAUDE_CODE_SUBAGENT_MODEL` removed and per-agent models pinned
-(`87d267e`).
+(`adb2284`); `CLAUDE_CODE_SUBAGENT_MODEL` removed and per-agent models pinned
+(`4f68e86`).
 
 ---
 
