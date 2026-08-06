@@ -1,10 +1,9 @@
 # pg_resp benchmarks
 
-> **STATUS: DRAFT — prose written, number tables still PENDING.**
-> The methodology, reading rules and limitations below are final and are being
-> reviewed. **No throughput or latency table in this document is filled in yet.**
-> Sections marked **PENDING** have no numbers on purpose — an empty cell is
-> honest, a placeholder number is not.
+> **STATUS: DRAFT pending review — all numbers measured.**
+> Every table below is measured and generated from committed raw artifacts. The
+> document is a draft only in the sense that it has not yet been reviewed for
+> publication.
 >
 > Two constraints on what may ever appear here. Only figures from the dedicated
 > benchmark box are eligible (Phase 4 environment amendment: development-machine
@@ -21,6 +20,17 @@ Method, environment, arm configuration and per-cell raw artifacts:
 [`bench/results/ENV.md`](../bench/results/ENV.md) and
 [`bench/configs/README.md`](../bench/configs/README.md). Every figure in this
 document has a committed raw file and a command that regenerates it.
+
+## Reading these numbers
+
+Three rules, and a skeptic needs all three. **(1)** The structural gate (G3) is
+decided by the **minimum** measured cell, never the average or the best — so the
+weakest ratio in the table is the claim. **(2)** "Within spread" means the
+measurement **cannot distinguish** the two arms, not that they are equal; every cell
+carries its own run-to-run spread and that spread is the noise band. **(3)** Every
+table on this page is **regenerated from committed raw artifacts** —
+`python3 bench/harness/curve.py bench/results/grid --arms P-opt K-pg` — so no figure
+here is typed by hand and none can drift from its raw file.
 
 ## What is being compared, and what the comparison means
 
@@ -95,10 +105,44 @@ Two things it is *not*:
 
 Reproduce: `bench/results/ENV.md` §20 (official box) and §6 (first verification).
 
-## Raw throughput — PENDING (dedicated box)
+## Raw throughput — all six arms
 
-Where Redis and Valkey win, with numbers. Per bible §0.5, every arm's figures
-are published including the ones that lose.
+Per bible §0.5, every arm's figures are published including the ones where we lose.
+Median run of 3 x 60 s per cell, warm-up v2, one arm live at a time, spread gate 8%.
+All 72 cells publishable.
+
+| workload | P-def | P-opt | R-def | R-opt | V-opt | K-pg |
+|---|---|---|---|---|---|---|
+| `d64-p1-c1` | 26,858 | 27,770 | 26,756 | 27,647 | 26,564 | 3,400 |
+| `d64-p1-c8` | 99,009 | 101,092 | 94,096 | 99,215 | 94,619 | 10,186 |
+| `d64-p1-c64` | 99,537 | 101,312 | 98,159 | 103,410 | 104,075 | 10,214 |
+| `d64-p16-c1` | 302,848 | 302,251 | 271,785 | 296,869 | 298,232 | 4,116 |
+| `d64-p16-c8` | 1,066,902 | 1,083,054 | 784,851 | 929,834 | 943,863 | 11,061 |
+| `d64-p16-c64` | 1,241,489 | 1,248,212 | 1,026,203 | 1,091,321 | 1,112,940 | 11,171 |
+| `d1024-p1-c1` | 26,292 | 26,946 | 25,682 | 26,733 | 27,515 | 3,312 |
+| `d1024-p1-c8` | 98,429 | 99,272 | 94,077 | 98,422 | 98,056 | 9,849 |
+| `d1024-p1-c64` | 102,102 | 102,218 | 105,304 | 104,969 | 103,957 | 10,164 |
+| `d1024-p16-c1` | 276,769 | 287,152 | 282,137 | 335,933 | 342,198 | 3,916 |
+| `d1024-p16-c8` | 426,092 | 423,351 | 430,549 | 415,101 | 416,978 | 10,639 |
+| `d1024-p16-c64` | 484,380 | 481,075 | 483,964 | 484,444 | 478,610 | 10,883 |
+
+*Workload id is `d<value bytes>-p<pipeline>-c<total connections>`.*
+
+**Where the incumbents win outright:** at `d1024-p16-c1`, Valkey reaches 342,198 and
+Redis 335,933 against pg_resp's 287,152 — **+19% and +17%**.
+
+**Grid-wide tally**, 24 paired comparisons (12 workloads x 2 incumbents, publishable
+cells only, each pair's own spread as the noise band): **pg_resp faster in 8, an
+incumbent faster in 2, and 14 within run-to-run noise.** Both incumbents run
+single-threaded by default here, and the same Redis given `io-threads 4` reaches
+2,151,675 ops/s — **1.79x pg_resp** — using 2.80 cores against pg_resp's 1.05. So the
+honest summary of the two together is: *comparable to a single-threaded Redis at
+these payloads, and beaten by a Redis you let use more cores.*
+
+That `io-threads` cell is a labelled **robustness check, not a ranked arm**: bible
+§10 pre-registered the incumbents at their default I/O threading, and the ranked
+comparison keeps that. The cell exists because the result survives it being run, and
+publishing the ranked rows without it would be a lie of omission.
 
 ### Reading rule: transport-bound cells are not ties
 
@@ -117,7 +161,7 @@ the bench, not a property of pg_resp. Cells below the ceiling (64 B) and the K-p
 comparison (an order of magnitude below it) are where the arms are genuinely
 distinguishable, and those are the cells that carry an interpretation.
 
-## Structural comparison vs K-pg — tables PENDING (Stage B), method final
+## Structural comparison vs K-pg
 
 Per D14 as amended: the matched-p99 headline, the **full throughput-vs-p99 curve
 for both arms** (not only the matched point), identical memtier client
@@ -129,10 +173,17 @@ each-at-own-saturation ratio reported alongside.
 **If you are skeptical of this comparison, start with the weakest cell, not the
 strongest.** At one connection with no pipelining — where both arms are bound by
 network round trips and neither server is working hard — pg_resp is about
-**6.7x** Redka-on-PostgreSQL. That is the honest floor, it is the number a
+**8.1x** Redka-on-PostgreSQL. That is the honest floor, it is the number a
 skeptic should be handed first, and it is the one that decides the gate: G3 asks
 for >= 5x and the *minimum* cell is what has to clear it, not the average and
 certainly not the maximum.
+
+*Provenance: an earlier measurement of this same cell gave **6.7x**, under warm-up
+v1 (a fixed-duration pre-load, whose written volume varied with the cell's
+concurrency and so left each cell at a different degree of fill). Warm-up v2 —
+a fixed number of pre-population writes — superseded it, every cell was re-measured,
+and this figure is the v2 one. The v1 number is not wrong for the protocol it was
+taken under; it is simply not the protocol these tables use.*
 
 The ratio then grows with load, because the two architectures diverge under
 pressure rather than at rest. Cells at or above 100x exist and are published, and
@@ -143,7 +194,38 @@ connections, where Redka's p99 is 83 ms and pg_resp's is 0.6 ms" is a
 measurement.
 
 Headline composition, fixed in advance so it cannot drift toward the flattering
-end: **">= 6.7x at worst, 40x at matched p99 (1 KB, <= 25 ms)".**
+end: **">= 8.1x at worst, 40x at matched p99 (1 KB, <= 25 ms)".**
+
+### The measured ratios, at identical client configuration
+
+| workload | pg_resp ops/s | Redka ops/s | ratio | pg_resp p99 | Redka p99 |
+|---|---|---|---|---|---|
+| `d1024-p1-c1` | 26,946 | 3,312 | **8.1x** | 0.047 ms | 0.599 ms |
+| `d64-p1-c1` | 27,770 | 3,400 | **8.2x** | 0.047 ms | 0.583 ms |
+| `d64-p1-c8` | 101,092 | 10,186 | **9.9x** | 0.095 ms | 1.695 ms |
+| `d64-p1-c64` | 101,312 | 10,214 | **9.9x** | 0.695 ms | 28.543 ms |
+| `d1024-p1-c8` | 99,272 | 9,849 | **10.1x** | 0.095 ms | 1.751 ms |
+| `d1024-p1-c64` | 102,218 | 10,164 | **10.1x** | 0.687 ms | 28.799 ms |
+| `d1024-p16-c8` | 423,351 | 10,639 | **39.8x** | 0.343 ms | 16.383 ms |
+| `d1024-p16-c64` | 481,075 | 10,883 | **44.2x** | 2.431 ms | 162.815 ms |
+| `d1024-p16-c1` | 287,152 | 3,916 | **73.3x** | 0.079 ms | 7.007 ms |
+| `d64-p16-c1` | 302,251 | 4,116 | **73.4x** | 0.071 ms | 5.567 ms |
+| `d64-p16-c8` | 1,083,054 | 11,061 | **97.9x** | 0.143 ms | 16.255 ms |
+| `d64-p16-c64` | 1,248,212 | 11,171 | **111.7x** | 0.903 ms | 156.671 ms |
+
+Ordered weakest first, deliberately. **G3 verdict: PASS** — the minimum cell is
+8.1x against a >= 5x bar, and all twelve clear it.
+
+**One caveat that runs in pg_resp's favour**, stated here rather than in a footnote:
+Redka is unbounded where pg_resp evicts at its cap, so Redka usually held the
+*higher* hit rate — 10 of the 12 paired cells differ by more than 5 points, up to
+100.0% against 45.3%. A hit returns the value where a miss returns 5 bytes, so the
+arm with more hits is doing more work per operation, and that **inflates these
+ratios**. Per-cell hit rates are in the raw artifacts and in `curve.py`'s parity
+table. Offered as counter-evidence rather than as a dismissal: Redka's throughput is
+payload-invariant (3,400 ops/s at 64 B against 3,312 at 1 KB, both at 98-100% hit),
+which is what a per-operation bottleneck looks like and implies the hit-rate gap
+moves its number little.
 
 ### Where the comparison stops existing
 
@@ -184,13 +266,29 @@ than as a tuning result — and why the arm's PostgreSQL is deliberately configu
 in Redka's favour (`synchronous_commit=off`, matched `shared_buffers`; ENV.md §7),
 so that what remains is the transaction cost and not fsync.
 
-It is also the reason this section leads with 6.7x. If the gap were a constant
+It is also the reason this section leads with 8.1x. If the gap were a constant
 factor, one number would describe it. It is not a constant factor: it is one
 architecture hitting a per-operation ceiling while the other keeps scaling, so the
 ratio is a function of how hard you push. The floor is the honest summary, and the
 curve is the actual finding.
 
-## RAM per 1M cached 1 KB entries — PENDING (dedicated box)
+## RAM per 1M cached 1 KB entries
+
+| arm | RSS delta | bytes/entry | overhead over the 1024 B value |
+|---|---|---|---|
+| **pg_resp** | 1,210,765,312 | **1,210** | 186 B |
+| Redis | 1,345,163,264 | **1,345** | 321 B |
+| Valkey | 1,353,830,400 | **1,353** | 329 B |
+
+*1M entries of 1 KB values, 999,986 resident. Caps raised to 1536 MB for this metric
+only — 1M x 1 KB cannot fit under the 256 MB throughput cap, and a cap that forced
+eviction would measure the eviction policy instead of per-entry cost. RSS is a cgroup
+`memory.current` delta: an upper bound including page cache, measured identically for
+all three arms.*
+
+pg_resp is **~10% leaner per entry**. K-pg is measured differently (D17): its cache is
+PostgreSQL tables, so it is **1,329 bytes/entry on disk** (`rkey` 135,880,704 +
+`rstring` 1,193,205,760) **plus a 1 GB buffer pool**.
 
 With the allocator caveat that belongs beside it: the incumbents use jemalloc
 5.3.0 and pg_resp uses glibc malloc (ENV.md §10). jemalloc is generally stronger
@@ -199,6 +297,34 @@ than the design, and moving pg_resp to jemalloc is a v0.2 item deliberately not
 done mid-benchmark-phase. K-pg is measured differently again (D17): its cache
 lives in PostgreSQL tables on disk, so it is reported as disk bytes plus
 `shared_buffers`, not RSS.
+
+## What is not measured: 16 KB values
+
+**16 KB is absent from every table above, and that is a limitation of our benchmark
+client in one environment — not of pg_resp.** On the benchmark box, the pinned
+`memtier_benchmark` collapsed by three orders of magnitude at exactly a 16,384-byte
+payload while `redis-benchmark` against the same server did not:
+
+| data-size | redis-benchmark | memtier_benchmark |
+|---|---|---|
+| 16,340 B | 20,000 req/s | 21,476 ops/s |
+| **16,384 B** | **19,355 req/s** | **24.5 ops/s** |
+| 32,768 B | 16,216 req/s | — |
+
+**Read that narrowly, because we had to.** The cliff **did not reproduce** with a
+clean build of the same pinned memtier on a second machine against stock Redis
+(16,384 B → 7,225 ops/s, no cliff). So it is a client-side artefact **of that
+environment**, not a general memtier defect — the evidence that it was client-side
+*there* is that all four servers collapsed identically on that box while a different
+client did not. **If you run memtier at 16 KB on your own machine you will most
+likely see no cliff, and that contradicts nothing here.**
+
+pg_resp itself serves 16 KB and 32 KB values without difficulty — 19,355 and 16,216
+requests/second at one unpipelined connection, measured by the independent client.
+Every ranked cell on this page comes from one pinned client, so rather than mix two
+clients in one table we publish the gap and its proof. Full account:
+[`ENV.md`](../bench/results/ENV.md) §22 and §25, and
+[`docs/upstream/04-memtier-16k-boundary-NOT-REPRODUCED.md`](upstream/04-memtier-16k-boundary-NOT-REPRODUCED.md).
 
 ## Acceptance criteria applied to every cell here
 
