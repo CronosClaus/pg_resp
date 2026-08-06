@@ -90,7 +90,7 @@ tables — no mixed-protocol tables.** Stage A survives only as the v1 record in
 - [x] Harness: saturation sampling + live-config capture + warm-up v2 + curve.py golden test — **committed before any grid cell** (`c1921ce`, `4122315`, `9ffedfb`, `b6d38cc`)
 - [x] Grid launched detached — tmux session `grid`, started **2026-08-05T19:36:57Z** at head `b6d38cc`. ETA ~6.5 h (~02:00 UTC)
 - [x] Local drafts done while grid runs: BENCHMARKS.md prose (`1a4f704`), README first screen (`53d3b9f`), demo 3 built (`a06e104`)
-- [!] **Grid STOPPED at 12/108** — systemic harness failure, see "Grid stop" below. Box left UP. No protocol changed.
+- [x] ~~Grid STOPPED at 12/108~~ superseded; final run COMPLETE at 75/75 — systemic harness failure, see "Grid stop" below. Box left UP. No protocol changed.
 - [ ] Raw results rsynced and **committed before analysis**
 - [ ] Curve tables v2 + publishability stamps + computed G3 verdict
 - [ ] W6 (RAM per 1M x 1 KB)
@@ -372,3 +372,29 @@ persuasive diagnosis died to a control experiment.
 
 All three were plausible, and all three would have shipped as fact without the
 control.
+
+
+---
+
+# NIGHT COMPLETE — 2026-08-06T03:10Z
+
+Grid `### GRID COMPLETE 2026-08-06T02:53:31Z — attempted=75 voided=0 unpublishable=0`.
+W6 and demo 3 measured after it. All raw artifacts committed before analysis.
+
+| stage | outcome |
+|---|---|
+| Grid | 72 ranked + 2 anomaly + 1 supplementary, **0 voided, 0 unpublishable**, spread 0.15-5.88% (median 1.97%) |
+| G3 | **PASS** — minimum same-workload ratio **8.1x** vs the >= 5x bar; all 12 paired cells clear it |
+| 64 B anomaly | **Resolved and scoped**: pg_resp +9.8% over single-threaded Redis, both core-saturated; Redis with io-threads=4 is **1.79x faster than pg_resp** |
+| W6 | pg_resp **1,210 B/entry** vs Redis 1,345, Valkey 1,353 |
+| G4 / demo 3 | **Tie at ~105k checks/s** — round-trip-bound, so a bound rather than a crossover |
+| 16 KB | **Parked, unmeasured** — cause unknown, two hypotheses refuted (§25) |
+
+## Owed to the human
+
+- `docs/ops.md` per-entry constant understates real RSS overhead by ~2x (§26)
+- `ENV.md` §23 predicted the peak 1 KB cell might be unpublishable; it passed at
+  0.72% after the retry landed. That section needs correcting.
+- Hit-rate parity is poor (10/12 paired cells off by >5 pts, K-pg usually higher),
+  which **inflates the G3 ratio in pg_resp's favour**. Flagged per cell.
+- 16 KB remains unmeasured; §10 asks for three payload sizes, this run has two.
