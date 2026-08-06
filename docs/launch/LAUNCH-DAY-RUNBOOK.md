@@ -36,6 +36,7 @@ and report on.
 | ✓ | owner | item |
 |---|---|---|
 | ☐ | **H** | Publish the Release object (notes from [`RELEASE-NOTES-v0.1.0.md`](RELEASE-NOTES-v0.1.0.md)) |
+| ☐ | **H** | **Upload `dist/pg_resp-0.1.0.zip` to PGXN.** Verify `sha256sum` matches the value in the runbook note below *before* uploading. **The PGXN upload page publishes immediately — there is no draft state**, so this is an announcement surface and belongs here, not in setup |
 | ☐ | **H** | Post to HN, alone |
 | ☐ | **H** | File the two pgrx issues from `docs/upstream/` (01 and 03 only) and add the URLs to that README |
 
@@ -123,3 +124,38 @@ than the benchmark.
 2. Say so in the thread within the hour, with what you know and what you don't.
 3. Fix forward — `0.1.1` with a note beats a silent force-push, and this repo's
    credibility rests on visible corrections.
+
+
+## PGXN dist — verify before you upload
+
+The upload page **publishes immediately; there is no draft state.** Treat it exactly
+like pressing "post".
+
+```
+file    dist/pg_resp-0.1.0.zip
+size    0.48 MB
+sha256  787a7605cad64cb8c90c6381c7cfb993881bbe67069e3d74e556403ae61296c3
+```
+
+Check it before uploading, so what reaches PGXN is provably what was built:
+
+```bash
+sha256sum dist/pg_resp-0.1.0.zip
+```
+
+**What is in it, and one deliberate omission.** The zip is `git archive` of the
+`v0.1.0` tag — 159 files, single top-level `pg_resp-0.1.0/`, `META.json` at root —
+with **the 5.4 MB of raw benchmark artifacts removed** (291 files of memtier output,
+cell summaries, CPU samples, run logs). A PGXN source distribution exists to build
+the extension, not to carry a measurement archive. `bench/results/ENV.md` **is**
+included, because it is the methodology the numbers depend on, and the dist carries
+`bench/results/RAW-ARTIFACTS-NOT-IN-DIST.md` pointing at the tagged tree on GitHub so
+nothing is quietly dropped.
+
+`.claude/` (11 files, 112 KB) **is** included, deliberately: `CONTRIBUTING.md` cites
+those skill files for the threading rules and Postgres conventions, so a dist without
+them would have dangling references.
+
+**`META.json` is not in the `v0.1.0` git tag** — PGXN was approved after tagging. It
+is injected into the dist and committed to `master` for the next release. The tag was
+not moved; a tag that moves is worse than a dist that carries one extra file.

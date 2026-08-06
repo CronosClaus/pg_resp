@@ -1,0 +1,49 @@
+{
+   "name": "pg_resp",
+   "abstract": "A Redis-protocol (RESP2) cache server inside a PostgreSQL background worker",
+   "description": "pg_resp runs a RESP2-speaking TCP server inside a PostgreSQL background worker, so redis-cli and every existing Redis client library can talk to your database directly. It is in-process: not a proxy, not a sidecar, and not a layer that translates each operation into SQL. Strings, TTLs, CLOCK-LRU eviction and a hard memory cap, plus a resp.* SQL surface and a resp.evict trigger function that makes cache invalidation a property of the schema rather than of application discipline. Ephemeral by design.",
+   "version": "0.1.0",
+   "maintainer": [
+      "CronosClaus <ccclaudiucarare@gmail.com>"
+   ],
+   "license": "postgresql",
+   "provides": {
+      "pg_resp": {
+         "abstract": "Redis-protocol (RESP2) cache server in a PostgreSQL background worker",
+         "file": "crates/pg_resp/sql/pg_resp--0.1.0.sql",
+         "docfile": "docs/ops.md",
+         "version": "0.1.0"
+      }
+   },
+   "prereqs": {
+      "runtime": {
+         "requires": {
+            "PostgreSQL": "16.0.0"
+         }
+      }
+   },
+   "resources": {
+      "homepage": "https://github.com/CronosClaus/pg_resp",
+      "bugtracker": {
+         "web": "https://github.com/CronosClaus/pg_resp/issues"
+      },
+      "repository": {
+         "url": "https://github.com/CronosClaus/pg_resp.git",
+         "web": "https://github.com/CronosClaus/pg_resp",
+         "type": "git"
+      }
+   },
+   "generated_by": "CronosClaus",
+   "meta-spec": {
+      "version": "1.0.0",
+      "url": "https://pgxn.org/meta/spec.txt"
+   },
+   "tags": [
+      "cache",
+      "redis",
+      "resp",
+      "background worker",
+      "rust",
+      "pgrx"
+   ]
+}
