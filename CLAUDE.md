@@ -62,6 +62,32 @@ isolation. The only structural defence is one definition.
 step that inlines commands which also exist as a committed script or documented
 procedure gets pointed at the committed version instead.
 
+## Standing rule: absence of a failure token is not a pass
+
+**A check passes only on POSITIVE evidence** — a count, an explicit verdict, the
+expected output. "No `FAIL` in the log" is not evidence; it is the absence of one
+kind of evidence.
+
+**Any pipeline containing `|| true`, `2>/dev/null`, or output filtering must prove
+it can still fail.** If you cannot say how the check would report a failure, it is
+not a check.
+
+This is the **same structural disease** as the CI-guard-copy rule above: both
+produce things that look like verification but cannot fail. The guard-copy bug made
+a green job that tested a different artifact; this one makes a green log that tested
+nothing. Neither is caught by reading the check — only by asking what its failure
+would look like.
+
+It nearly shipped a tag. `make compat` runs each of five clients with `|| true`, and
+the first pass was filtered to a grep that dropped the per-client verdicts, so a
+client failure would have surfaced in neither the exit code nor the log. It was
+re-run with full capture and passed on real counts (27/27, 30/30, 28/28, 31/31, and
+redis-cli's "all checks passed") — but the first result was indistinguishable from
+a pass and was not one.
+
+**Sweep the Makefile and scripts for `|| true` + filtering combinations during the
+pre-announce pass.**
+
 ## Iron rules
 1. PG FFI from the **main bgworker thread only**. Never from server/loop threads.
 2. Never read `/ref` trees directly once digests exist; use `docs/refs/*-notes.md`. Digests are created once in Phase 0 and updated only when a gate failure traces to a wrong fact.

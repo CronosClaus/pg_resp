@@ -1451,6 +1451,31 @@ It is **checkable rather than merely asserted**, three ways:
 The `0.1.0` image is built from the tag on the rewritten history and carries a live
 revision label. This applies to the rc only.
 
+### Published image digests
+
+| tag | digest | `image.revision` label | notes |
+|---|---|---|---|
+| `0.1.0-rc` | `sha256:e3d39397ee2468e05a594c0879c645d2b350347cf7e39ba72a71fbcf9b6ddbf6` | pre-rewrite SHA — see above | cited by the G1 record; retained, not deleted |
+| **`0.1.0`** | `sha256:15b477b8c21afd4d5c00abf95b83c54875d0477b144573ed61e92fb23ae815c6` | `a18902d3` (the tagged commit, live) | `latest` points here |
+
+**Server source is identical between the two**, verified rather than asserted:
+
+```
+$ git diff --stat 56f53c5..v0.1.0 -- crates/
+(no output)
+```
+
+So every benchmark figure in this document, measured against the box image built
+from `56f53c5`, applies unchanged to the published `0.1.0`. Per the rule stated
+above: had that diff been non-empty, the numbers would have been re-measured rather
+than carried forward.
+
+`0.1.0` was additionally verified by a **cold pull of the published image** — image
+removed locally first, pulled from GHCR, started, `SET`/`GET` over RESP returning
+`hello`, and `CREATE EXTENSION` + `resp.get` returning the same value through the SQL
+surface. That is a check of the artifact users actually receive, not of a local
+build.
+
 ### RC retirement
 
 Once `0.1.0` is published and its own `quickstart-check` has passed against it, the
