@@ -3,16 +3,41 @@
 One page. Written to be followed, not read. Nothing here is automated and nothing
 here should be delegated: every step is a judgement call or a posting action.
 
-## Before you post anything (10 minutes)
+## T-minus checklist
 
-- [ ] `docker rmi ghcr.io/cronosclaus/pg_resp:0.1.0` then run the three README
-      commands. If the quickstart is broken on launch day, nothing else matters.
-      It has broken once already.
-- [ ] Open the README on github.com and click **every** intra-repo link. Relative
-      links resolve differently in rendered Markdown than on disk.
-- [ ] Confirm `ghcr.io/cronosclaus/pg_resp:0.1.0` still shows **Public**.
-- [ ] Check the security inbox (`ccclaudiucarare@gmail.com`) is reachable and you
-      will see mail on your phone.
+Owner column is not decoration — **H** items need your account, your judgement or
+your machine, and cannot be delegated. **A** items are verification the agent can run
+and report on.
+
+### T-1 day
+
+| ✓ | owner | item |
+|---|---|---|
+| ☐ | **A** | Full regression sweep re-run on the tag: fast loop, `cargo pgrx test pg18`, compat (5 clients, positive counts), differential oracle |
+| ☐ | **A** | Public-facing pass: no absolute `/home` paths, no stale `TODO`, no `DRAFT`/`PENDING HUMAN REVIEW` banners, no inlined-command CI guards |
+| ☐ | **A** | Cold-pull the published `0.1.0` and run the three README commands end to end |
+| ☐ | **H** | **Contributor-graph check: the `claudiucarare` chip must have cache-flipped to `CronosClaus`.** GitHub's contributor cache lags a history rewrite by hours to days. **If it is still stale at T-1, escalate to me — do not announce with a work-email chip visible on the repo landing page.** |
+| ☐ | **H** | Record the demo clip per [`DEMO-SCRIPT.md`](DEMO-SCRIPT.md); agent reviews the `.cast` timing before it embeds |
+| ☐ | **H** | Read the Release notes draft end to end as an outsider would |
+
+### T-1 hour
+
+| ✓ | owner | item |
+|---|---|---|
+| ☐ | **H** | `docker rmi ghcr.io/cronosclaus/pg_resp:0.1.0`, then run the three README commands yourself. **If the quickstart is broken on launch day nothing else matters — it has broken once already.** |
+| ☐ | **H** | Open the README on github.com and click **every** intra-repo link. Relative links resolve differently rendered than on disk |
+| ☐ | **H** | Confirm the GHCR package still shows **Public** |
+| ☐ | **H** | Security inbox (`ccclaudiucarare@gmail.com`) reachable, and mail reaches your phone |
+| ☐ | **H** | Actions tab green — a red badge on launch day reads as abandonment |
+| ☐ | **H** | Two uninterrupted hours actually available. If not, **postpone** |
+
+### T-0
+
+| ✓ | owner | item |
+|---|---|---|
+| ☐ | **H** | Publish the Release object (notes from [`RELEASE-NOTES-v0.1.0.md`](RELEASE-NOTES-v0.1.0.md)) |
+| ☐ | **H** | Post to HN, alone |
+| ☐ | **H** | File the two pgrx issues from `docs/upstream/` (01 and 03 only) and add the URLs to that README |
 
 ## Posting order, and why
 
