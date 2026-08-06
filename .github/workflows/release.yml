@@ -44,12 +44,21 @@ jobs:
       - name: Build the image locally (stands in for the pull)
         run: docker build -t pg_resp:quickstart-check -f docker/pg_resp.Dockerfile .
 
+      # -c pg_resp.bind_address=0.0.0.0 is REQUIRED and is not a weakened default.
+      # pg_resp binds 127.0.0.1 (D6). Inside a container that is the CONTAINER's
+      # loopback, which docker's port publishing cannot reach — the proxy accepts
+      # on the host and the forward fails, giving "Connection reset by peer". The
+      # container must therefore listen on its own 0.0.0.0 while `-p 127.0.0.1:...`
+      # keeps the HOST-facing exposure on loopback only. Net exposure is identical
+      # to the default; the flag moves the boundary from the process to docker.
+      # This job's first run caught exactly this, which is why it gates publish.
       - name: Command 1 of 3 — start it
         run: |
           docker run -d --name pg_resp_qs \
             -e POSTGRES_PASSWORD=postgres \
             -p 127.0.0.1:6379:6379 -p 127.0.0.1:5432:5432 \
-            pg_resp:quickstart-check
+            pg_resp:quickstart-check \
+            -c pg_resp.bind_address=0.0.0.0
 
       - name: Command 2 of 3 — wait for it to serve
         run: |

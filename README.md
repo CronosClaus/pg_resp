@@ -243,8 +243,37 @@ the gap and its proof.
 
 ## Install
 
-`PENDING` — a container image and a `CREATE EXTENSION` quickstart land with the
-0.1.0 release. Building from source today:
+Three commands, no build:
+
+```bash
+docker run -d --name pg_resp \
+  -e POSTGRES_PASSWORD=postgres \
+  -p 127.0.0.1:6379:6379 -p 127.0.0.1:5432:5432 \
+  ghcr.io/cronosclaus/pg_resp:0.1.0-rc \
+  -c pg_resp.bind_address=0.0.0.0
+
+docker exec pg_resp pg_isready -U postgres          # wait for it
+
+redis-cli -h 127.0.0.1 -p 6379 SET greeting hello   # it answers
+```
+
+**Why `pg_resp.bind_address=0.0.0.0` there, and why it is not a weakened default.**
+pg_resp binds `127.0.0.1` by default (D6), and inside a container that is the
+*container's* loopback — which docker's port publishing cannot reach, so a plain
+`docker run -p` yields `Connection reset by peer`. The flag makes the server listen
+on the container's own `0.0.0.0`, while `-p 127.0.0.1:6379:6379` keeps the
+**host-facing** exposure on loopback. Net exposure is the same as the default; the
+boundary just moves from the process to docker. **Do not copy that flag onto a
+bare-metal install** — there it really does publish your cache to every interface.
+
+The SQL surface, once it is up:
+
+```bash
+docker exec pg_resp psql -U postgres -c "CREATE EXTENSION pg_resp;" \
+                                     -c "SELECT resp.get('greeting');"
+```
+
+Building from source instead:
 
 ```bash
 cargo install cargo-pgrx --locked --version 0.19.2
