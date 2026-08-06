@@ -15,6 +15,29 @@ version does not move, so no upgrade script is needed for that transition.
 
 ## [Unreleased]
 
+## [0.1.0] — 2026-08-06
+
+First release. Identical server source to `0.1.0-rc` (`crates/` unchanged); this
+release adds the measured benchmark record, the container image published from a
+tag, and the documentation that describes them.
+
+### Added
+- Full benchmark record: 72 ranked cells across six arms, W6 per-entry memory,
+  the rate-limiter bound, and every methodology caveat
+  ([`docs/BENCHMARKS.md`](docs/BENCHMARKS.md), [`bench/results/ENV.md`](bench/results/ENV.md)).
+- G1 quickstart gate measured: 14s of a 300s budget, 3 of 3 commands, cold pull on a
+  fresh host — including the run that failed first and why
+  ([`bench/results/g1/`](bench/results/g1/)).
+- `demos/3-rate-limiter/` — the honesty demo.
+- Container image published to GHCR by workflow, with a quickstart regression job.
+
+### Fixed
+- `TCP_NODELAY` on accepted sockets, as Redis and Valkey do.
+- The documented `docker run` quickstart could not reach the RESP port: pg_resp's
+  `127.0.0.1` default is the *container's* loopback, which docker port publishing
+  cannot reach. Documented `-c pg_resp.bind_address=0.0.0.0` for the containerised
+  case, with the reason it is not a weakened default.
+
 ## [0.1.0-rc] — 2026-08-05
 
 First release candidate. A RESP2 cache server running inside a PostgreSQL

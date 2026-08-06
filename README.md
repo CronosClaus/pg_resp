@@ -1,15 +1,5 @@
 # pg_resp
 
-> **DRAFT — PENDING HUMAN REVIEW. Not announced anywhere.**
-> Draft for external review (Phase 4 W7/W14). Nothing here is published until
-> reviewed.
->
-> **Every throughput, latency and memory figure below is measured** — on a dedicated
-> box except where labelled inline (demo 2's behavioural counts, measured on WSL2),
-> 3×60s per cell with a spread gate, from committed raw artifacts. One thing remains
-> `PENDING` and is left empty rather than estimated: the container image, which does
-> not exist until release.
-
 **A Redis-protocol (RESP2) cache server that runs inside a PostgreSQL background
 worker.** `redis-cli` connects to your database and it answers. One fewer service
 to run, patch, monitor and page someone about.
@@ -249,7 +239,7 @@ Three commands, no build:
 docker run -d --name pg_resp \
   -e POSTGRES_PASSWORD=postgres \
   -p 127.0.0.1:6379:6379 -p 127.0.0.1:5432:5432 \
-  ghcr.io/cronosclaus/pg_resp:0.1.0-rc \
+  ghcr.io/cronosclaus/pg_resp:0.1.0 \
   -c pg_resp.bind_address=0.0.0.0
 
 docker exec pg_resp pg_isready -U postgres          # wait for it
@@ -288,8 +278,9 @@ divergence from Redis behaviour: [`docs/semantics.md`](docs/semantics.md).
 
 ## Status
 
-**0.1.0-rc.** Not yet tagged, not yet announced. Phase 4 of the plan in
-[`project-bible.md`](project-bible.md); benchmarking and packaging are what remain.
+**0.1.0.** First release. Built to the phased plan in
+[`project-bible.md`](project-bible.md); every gate's measured result is in
+[`reports/`](reports/).
 
 Developed agent-assisted (Claude Code) against a phased plan with hard gates. The
 full plan, the phase reports, the benchmark methodology and the failures are public

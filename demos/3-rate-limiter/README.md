@@ -1,9 +1,5 @@
 # Demo 3 — rate limiter (the honesty demo)
 
-> **DRAFT — measured figures PENDING.** The build is complete and runnable; the
-> published crossover number is measured on the benchmark box under the
-> [`ENV.md`](../../bench/results/ENV.md) protocol, not from a laptop.
-
 The other demos show where pg_resp wins. This one exists to find where it
 **stops** winning, and to say so with a number.
 
@@ -17,7 +13,7 @@ The deliverable is therefore a **crossover**:
 > Above roughly `X` rate-limit checks per second, keep Redis. Below it, the second
 > service is not buying you anything.
 
-`X` is `PENDING` until the box measurement lands.
+Measured: **~105,000 checks/s**, where pg_resp and Redis are indistinguishable because the workload is round-trip-bound. See `ENV.md` §27 — the honest result is a bound, not a crossover.
 
 ## Run it
 

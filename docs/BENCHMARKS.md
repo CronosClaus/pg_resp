@@ -1,21 +1,5 @@
 # pg_resp benchmarks
 
-> **STATUS: DRAFT pending review — all numbers measured.**
-> Every table below is measured and generated from committed raw artifacts. The
-> document is a draft only in the sense that it has not yet been reviewed for
-> publication.
->
-> Two constraints on what may ever appear here. Only figures from the dedicated
-> benchmark box are eligible (Phase 4 environment amendment: development-machine
-> runs are harness-validation data and may never appear). And every table is
-> **generated from committed raw artifacts** by
-> [`curve.py`](../bench/harness/curve.py) — no number is typed into this file by
-> hand, so a table and its raw file cannot drift apart.
->
-> Superseded data is excluded rather than mixed in: the first measured curve used
-> a fixed-duration warm-up whose written volume varied with concurrency, and its
-> numbers survive only as a methodology record in `ENV.md`.
-
 Method, environment, arm configuration and per-cell raw artifacts:
 [`bench/results/ENV.md`](../bench/results/ENV.md) and
 [`bench/configs/README.md`](../bench/configs/README.md). Every figure in this

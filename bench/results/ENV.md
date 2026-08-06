@@ -1430,5 +1430,37 @@ The two SHAs that appear in raw artifact headers:
 
 The published `0.1.0-rc` GHCR image is **unaffected**: a container image is
 addressed by content digest, not by git ref, so the artifact users pull is the same
-bytes it was before the rewrite. Its `org.opencontainers.image.revision` label
-records a pre-rewrite SHA, which maps through the same table.
+bytes it was before the rewrite.
+
+### The rc image's revision label points at a SHA that no longer exists
+
+Stated as a mechanism rather than left for someone to trip over. **The identity
+rewrite orphaned every pre-rewrite SHA by construction** — `git filter-repo`
+rewrites commit objects, so their hashes change and the originals are unreachable
+from any ref. The rc image's `org.opencontainers.image.revision` label was baked in
+before the rewrite and therefore names a dead commit.
+
+It is **checkable rather than merely asserted**, three ways:
+
+1. the mapping table above translates the label's SHA to the live one;
+2. the pre-rewrite history is preserved in a local mirror clone,
+   `../pg_resp-backup-pre-rewrite`, old head **`313830d`**, where the label's SHA
+   resolves normally;
+3. `crates/` is byte-identical across the rewrite, so the label naming a dead commit
+   changes nothing about what the image contains.
+
+The `0.1.0` image is built from the tag on the rewritten history and carries a live
+revision label. This applies to the rc only.
+
+### RC retirement
+
+Once `0.1.0` is published and its own `quickstart-check` has passed against it, the
+`0.1.0-rc` tag is **superseded but deliberately NOT deleted**.
+
+Its digest `sha256:e3d39397ee2468e05a594c0879c645d2b350347cf7e39ba72a71fbcf9b6ddbf6`
+is cited in the G1 record (`bench/results/g1/`), and **deleting a cited artifact
+would violate the same evidence rule that keeps raw benchmark files byte-intact**.
+An artifact referenced by a measurement stays reachable.
+
+Users should pull `0.1.0` or `latest`. The rc remains only so the G1 record stays
+verifiable.

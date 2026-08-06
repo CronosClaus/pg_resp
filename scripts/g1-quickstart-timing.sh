@@ -10,9 +10,9 @@
 # GHCR packages are private by default, independently of repository visibility.
 #
 # Usage:   bash g1-quickstart-timing.sh [image]
-# Default image: ghcr.io/cronosclaus/pg_resp:0.1.0-rc
+# Default image: ghcr.io/cronosclaus/pg_resp:0.1.0
 set -uo pipefail
-IMAGE="${1:-ghcr.io/cronosclaus/pg_resp:0.1.0-rc}"
+IMAGE="${1:-ghcr.io/cronosclaus/pg_resp:0.1.0}"
 
 echo "=== G1 quickstart timing ==="
 echo "host   : $(uname -srm)"
