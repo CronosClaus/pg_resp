@@ -74,5 +74,20 @@ plan, the phase reports, the benchmark methodology and the failures are all publ
 in this repository — including the measurements that were withdrawn and the
 conclusions that turned out to be wrong.
 
+## Verifying what you install
+
+PGXN source distribution `pg_resp-0.1.0.zip`, sha256:
+
+```
+18941dfcd354b6778f53f26bbe315b1f03b6f38da1396a26c0c643aef9a783a1
+```
+
+Rebuild it yourself from the tag with `make pgxn-dist` — the recipe is reproducible
+and the hash is committed at `docs/launch/DIST-SHA256.txt`, so the uploaded artifact
+verifies against this repository rather than against a claim.
+
+Container image `ghcr.io/cronosclaus/pg_resp:0.1.0`, digest
+`sha256:15b477b8c21afd4d5c00abf95b83c54875d0477b144573ed61e92fb23ae815c6`.
+
 `0.1.0-rc` is superseded; it remains published because its digest is cited in the G1
 measurement record.

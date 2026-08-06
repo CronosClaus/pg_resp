@@ -6,3 +6,4 @@ Cargo.lock.orig
 node_modules/
 .DS_Store
 __pycache__/
+build/

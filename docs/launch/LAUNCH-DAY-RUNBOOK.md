@@ -19,6 +19,8 @@ and report on.
 | ☐ | **H** | **Contributor-graph check: the `claudiucarare` chip must have cache-flipped to `CronosClaus`.** GitHub's contributor cache lags a history rewrite by hours to days. **If it is still stale at T-1, escalate to me — do not announce with a work-email chip visible on the repo landing page.** |
 | ☐ | **H** | Record the demo clip per [`DEMO-SCRIPT.md`](DEMO-SCRIPT.md); agent reviews the `.cast` timing before it embeds |
 | ☐ | **H** | Read the Release notes draft end to end as an outsider would |
+| ☐ | **H** | **File the two pgrx issues** (`docs/upstream/` 01 and 03 only — 02 is withdrawn, 04 is not-for-filing) and record the URLs in that README. **Do this days ahead, not at T-0:** aging is the point, and the launch post links the URLs, so they must exist before the post is final |
+| ☐ | **A** | Validate `META.json` against the **official** PGXN Meta schema (fetch it, or use the `pgxn_meta` validator). Structural validation is already done; this closes it. **No live-fire discovery at T-0** |
 
 ### T-1 hour
 
@@ -38,7 +40,7 @@ and report on.
 | ☐ | **H** | Publish the Release object (notes from [`RELEASE-NOTES-v0.1.0.md`](RELEASE-NOTES-v0.1.0.md)) |
 | ☐ | **H** | **Upload `dist/pg_resp-0.1.0.zip` to PGXN.** Verify `sha256sum` matches the value in the runbook note below *before* uploading. **The PGXN upload page publishes immediately — there is no draft state**, so this is an announcement surface and belongs here, not in setup |
 | ☐ | **H** | Post to HN, alone |
-| ☐ | **H** | File the two pgrx issues from `docs/upstream/` (01 and 03 only) and add the URLs to that README |
+| ☐ | **H** | Verify the two pgrx issue URLs are recorded in `docs/upstream/README.md` — they should already be filed and aging by now |
 
 ## Posting order, and why
 
@@ -133,8 +135,8 @@ like pressing "post".
 
 ```
 file    dist/pg_resp-0.1.0.zip
-size    0.48 MB
-sha256  787a7605cad64cb8c90c6381c7cfb993881bbe67069e3d74e556403ae61296c3
+size    0.48 MB   (rebuild with `make pgxn-dist` — reproducible, verified over five builds)
+sha256  18941dfcd354b6778f53f26bbe315b1f03b6f38da1396a26c0c643aef9a783a1
 ```
 
 Check it before uploading, so what reaches PGXN is provably what was built:
