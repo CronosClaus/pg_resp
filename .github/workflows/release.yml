@@ -44,52 +44,35 @@ jobs:
       - name: Build the image locally (stands in for the pull)
         run: docker build -t pg_resp:quickstart-check -f docker/pg_resp.Dockerfile .
 
-      # -c pg_resp.bind_address=0.0.0.0 is REQUIRED and is not a weakened default.
-      # pg_resp binds 127.0.0.1 (D6). Inside a container that is the CONTAINER's
-      # loopback, which docker's port publishing cannot reach — the proxy accepts
-      # on the host and the forward fails, giving "Connection reset by peer". The
-      # container must therefore listen on its own 0.0.0.0 while `-p 127.0.0.1:...`
-      # keeps the HOST-facing exposure on loopback only. Net exposure is identical
-      # to the default; the flag moves the boundary from the process to docker.
-      # This job's first run caught exactly this, which is why it gates publish.
-      - name: Command 1 of 3 — start it
-        run: |
-          docker run -d --name pg_resp_qs \
-            -e POSTGRES_PASSWORD=postgres \
-            -p 127.0.0.1:6379:6379 -p 127.0.0.1:5432:5432 \
-            pg_resp:quickstart-check \
-            -c pg_resp.bind_address=0.0.0.0
-
-      - name: Command 2 of 3 — wait for it to serve
-        run: |
-          for i in $(seq 1 60); do
-            if docker exec pg_resp_qs pg_isready -U postgres -q 2>/dev/null; then break; fi
-            sleep 2
-          done
-          docker exec pg_resp_qs pg_isready -U postgres
-
-      - name: Command 3 of 3 — SET and GET over RESP
-        run: |
-          docker run --rm --network host redis:8.2-alpine \
-            redis-cli -h 127.0.0.1 -p 6379 SET quickstart hello
-          got=$(docker run --rm --network host redis:8.2-alpine \
-            redis-cli -h 127.0.0.1 -p 6379 GET quickstart)
-          echo "GET returned: $got"
-          test "$got" = "hello" || { echo "quickstart FAILED: expected hello"; exit 1; }
+      # THE GUARD MUST RUN THE GUARDED THING.
+      #
+      # This job previously kept its own inline copy of the three commands. The
+      # copy got the container-loopback fix; scripts/g1-quickstart-timing.sh did
+      # not — so this job stayed green while a real fresh host failed G1 at command
+      # 3. Two copies of "the three commands" is one copy too many. The job now
+      # executes the same script a human runs for the published timing.
+      - name: The three documented commands, via the same script G1 uses
+        run: bash scripts/g1-quickstart-timing.sh pg_resp:quickstart-check
 
       - name: The SQL surface is reachable too
         run: |
+          docker run -d --name pg_resp_qs -e POSTGRES_PASSWORD=postgres \
+            pg_resp:quickstart-check -c pg_resp.bind_address=0.0.0.0
+          for i in $(seq 1 60); do
+            docker exec pg_resp_qs pg_isready -U postgres -q 2>/dev/null && break; sleep 2
+          done
           docker exec pg_resp_qs psql -U postgres -v ON_ERROR_STOP=1 \
             -c "CREATE EXTENSION pg_resp;" \
-            -c "SELECT resp.get('quickstart');"
+            -c "SELECT resp.set('sql','ok');" \
+            -c "SELECT resp.get('sql');"
 
       - name: Diagnostics on failure
         if: failure()
-        run: docker logs pg_resp_qs 2>&1 | tail -50
+        run: docker logs pg_resp_g1 2>&1 | tail -50 || true
 
       - name: Clean up
         if: always()
-        run: docker rm -f pg_resp_qs || true
+        run: docker rm -f pg_resp_g1 pg_resp_qs || true
 
   publish:
     needs: quickstart-check

@@ -40,10 +40,21 @@ START=$(date +%s)
 
 echo "### COMMAND 1 — pull and run"
 CMD1_START=$(date +%s)
+# -c pg_resp.bind_address=0.0.0.0 is REQUIRED for the containerised case and is
+# NOT a weakened default. pg_resp binds 127.0.0.1 (D6); inside a container that is
+# the CONTAINER's loopback, which docker's port publishing cannot reach. The
+# host-facing exposure stays on loopback via -p 127.0.0.1:... — the boundary moves
+# from the process to docker, net exposure is unchanged.
+#
+# THIS FLAG WAS MISSING FROM THIS SCRIPT AND FAILED A REAL G1 RUN. The README and
+# the CI job had it; this script predated the fix and never received it. That is
+# why the CI job below now EXECUTES this script instead of keeping its own copy of
+# the three commands.
 docker run -d --name pg_resp_g1 \
   -e POSTGRES_PASSWORD=postgres \
   -p 127.0.0.1:6379:6379 -p 127.0.0.1:5432:5432 \
-  "$IMAGE" || { echo "G1 FAILED at command 1 — if this is a 'denied' error the package is still PRIVATE"; exit 1; }
+  "$IMAGE" \
+  -c pg_resp.bind_address=0.0.0.0 || { echo "G1 FAILED at command 1 — if this is a 'denied' error the package is still PRIVATE"; exit 1; }
 echo "  command 1 wall clock: $(( $(date +%s) - CMD1_START ))s"
 
 echo "### COMMAND 2 — wait until it serves"
