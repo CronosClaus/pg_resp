@@ -1,0 +1,572 @@
+### GRID START 2026-08-05T22:32:30Z  head=0c7300d
+### warm-up v2, 200000 keys; 6 arms x 4 workloads x 3 conns; 3x60s per cell
+
+======== 22:32:30Z  P-def  d64-p1-c1  -> bench/results/grid ========
+stopped every arm except P-def
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-def
+OK   only P-def is live
+P-def  d64-p1-c1             26,857.51 ops/s  p50   0.039  p99   0.047  p99.9    0.063  hit 43.03%
+raw:  bench/results/grid/2026-08-05-P-def-d64-p1-c1.txt
+json: bench/results/grid/2026-08-05-P-def-d64-p1-c1.json
+
+======== 22:35:46Z  P-def  d64-p1-c8  -> bench/results/grid ========
+stopped every arm except P-def
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-def
+OK   only P-def is live
+P-def  d64-p1-c8             99,008.81 ops/s  p50   0.087  p99   0.095  p99.9    0.111  hit 16.84%
+raw:  bench/results/grid/2026-08-05-P-def-d64-p1-c8.txt
+json: bench/results/grid/2026-08-05-P-def-d64-p1-c8.json
+
+======== 22:38:56Z  P-def  d64-p1-c64  -> bench/results/grid ========
+stopped every arm except P-def
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-def
+OK   only P-def is live
+P-def  d64-p1-c64            99,537.25 ops/s  p50   0.647  p99   0.735  p99.9    0.871  hit  5.20%
+raw:  bench/results/grid/2026-08-05-P-def-d64-p1-c64.txt
+json: bench/results/grid/2026-08-05-P-def-d64-p1-c64.json
+
+======== 22:42:06Z  P-def  d64-p16-c1  -> bench/results/grid ========
+stopped every arm except P-def
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-def
+OK   only P-def is live
+P-def  d64-p16-c1           302,847.90 ops/s  p50   0.055  p99   0.071  p99.9    0.087  hit 89.72%
+raw:  bench/results/grid/2026-08-05-P-def-d64-p16-c1.txt
+json: bench/results/grid/2026-08-05-P-def-d64-p16-c1.json
+
+======== 22:45:15Z  P-def  d64-p16-c8  -> bench/results/grid ========
+stopped every arm except P-def
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-def
+OK   only P-def is live
+P-def  d64-p16-c8         1,066,901.90 ops/s  p50   0.119  p99   0.143  p99.9    0.167  hit 67.73%
+raw:  bench/results/grid/2026-08-05-P-def-d64-p16-c8.txt
+json: bench/results/grid/2026-08-05-P-def-d64-p16-c8.json
+
+======== 22:48:23Z  P-def  d64-p16-c64  -> bench/results/grid ========
+stopped every arm except P-def
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-def
+OK   only P-def is live
+P-def  d64-p16-c64        1,241,489.43 ops/s  p50   0.823  p99   0.975  p99.9    1.423  hit 16.95%
+raw:  bench/results/grid/2026-08-05-P-def-d64-p16-c64.txt
+json: bench/results/grid/2026-08-05-P-def-d64-p16-c64.json
+
+======== 22:51:32Z  P-def  d1024-p1-c1  -> bench/results/grid ========
+stopped every arm except P-def
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-def
+OK   only P-def is live
+P-def  d1024-p1-c1           26,292.27 ops/s  p50   0.039  p99   0.055  p99.9    0.071  hit 45.67%
+raw:  bench/results/grid/2026-08-05-P-def-d1024-p1-c1.txt
+json: bench/results/grid/2026-08-05-P-def-d1024-p1-c1.json
+
+======== 22:54:47Z  P-def  d1024-p1-c8  -> bench/results/grid ========
+stopped every arm except P-def
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-def
+OK   only P-def is live
+P-def  d1024-p1-c8           98,428.56 ops/s  p50   0.087  p99   0.095  p99.9    0.119  hit 16.58%
+raw:  bench/results/grid/2026-08-05-P-def-d1024-p1-c8.txt
+json: bench/results/grid/2026-08-05-P-def-d1024-p1-c8.json
+
+======== 22:57:58Z  P-def  d1024-p1-c64  -> bench/results/grid ========
+stopped every arm except P-def
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-def
+OK   only P-def is live
+P-def  d1024-p1-c64         102,101.98 ops/s  p50   0.631  p99   0.687  p99.9    0.783  hit  5.14%
+raw:  bench/results/grid/2026-08-05-P-def-d1024-p1-c64.txt
+json: bench/results/grid/2026-08-05-P-def-d1024-p1-c64.json
+
+======== 23:01:08Z  P-def  d1024-p16-c1  -> bench/results/grid ========
+stopped every arm except P-def
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-def
+OK   only P-def is live
+P-def  d1024-p16-c1         276,768.95 ops/s  p50   0.063  p99   0.079  p99.9    0.103  hit 35.68%
+raw:  bench/results/grid/2026-08-05-P-def-d1024-p16-c1.txt
+json: bench/results/grid/2026-08-05-P-def-d1024-p16-c1.json
+
+======== 23:04:16Z  P-def  d1024-p16-c8  -> bench/results/grid ========
+stopped every arm except P-def
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-def
+OK   only P-def is live
+P-def  d1024-p16-c8         426,092.00 ops/s  p50   0.303  p99   0.343  p99.9    0.383  hit 39.22%
+raw:  bench/results/grid/2026-08-05-P-def-d1024-p16-c8.txt
+json: bench/results/grid/2026-08-05-P-def-d1024-p16-c8.json
+
+======== 23:07:25Z  P-def  d1024-p16-c64  -> bench/results/grid ========
+stopped every arm except P-def
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-def
+OK   only P-def is live
+P-def  d1024-p16-c64        484,380.27 ops/s  p50   2.175  p99   2.351  p99.9    3.839  hit  9.39%
+raw:  bench/results/grid/2026-08-05-P-def-d1024-p16-c64.txt
+json: bench/results/grid/2026-08-05-P-def-d1024-p16-c64.json
+
+======== 23:13:35Z  P-opt  d64-p1-c1  -> bench/results/grid ========
+stopped every arm except P-opt
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-opt
+OK   only P-opt is live
+P-opt  d64-p1-c1             27,769.62 ops/s  p50   0.039  p99   0.047  p99.9    0.063  hit 42.97%
+raw:  bench/results/grid/2026-08-05-P-opt-d64-p1-c1.txt
+json: bench/results/grid/2026-08-05-P-opt-d64-p1-c1.json
+
+======== 23:16:51Z  P-opt  d64-p1-c8  -> bench/results/grid ========
+stopped every arm except P-opt
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-opt
+OK   only P-opt is live
+P-opt  d64-p1-c8            101,091.85 ops/s  p50   0.079  p99   0.095  p99.9    0.111  hit 12.29%
+raw:  bench/results/grid/2026-08-05-P-opt-d64-p1-c8.txt
+json: bench/results/grid/2026-08-05-P-opt-d64-p1-c8.json
+
+======== 23:20:00Z  P-opt  d64-p1-c64  -> bench/results/grid ========
+stopped every arm except P-opt
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-opt
+OK   only P-opt is live
+P-opt  d64-p1-c64           101,311.63 ops/s  p50   0.639  p99   0.695  p99.9    0.775  hit  4.50%
+raw:  bench/results/grid/2026-08-05-P-opt-d64-p1-c64.txt
+json: bench/results/grid/2026-08-05-P-opt-d64-p1-c64.json
+
+======== 23:23:10Z  P-opt  d64-p16-c1  -> bench/results/grid ========
+stopped every arm except P-opt
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-opt
+OK   only P-opt is live
+P-opt  d64-p16-c1           302,250.68 ops/s  p50   0.055  p99   0.071  p99.9    0.095  hit 89.73%
+raw:  bench/results/grid/2026-08-05-P-opt-d64-p16-c1.txt
+json: bench/results/grid/2026-08-05-P-opt-d64-p16-c1.json
+
+======== 23:26:19Z  P-opt  d64-p16-c8  -> bench/results/grid ========
+stopped every arm except P-opt
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-opt
+OK   only P-opt is live
+P-opt  d64-p16-c8         1,083,053.81 ops/s  p50   0.119  p99   0.143  p99.9    0.159  hit 69.87%
+raw:  bench/results/grid/2026-08-05-P-opt-d64-p16-c8.txt
+json: bench/results/grid/2026-08-05-P-opt-d64-p16-c8.json
+
+======== 23:29:27Z  P-opt  d64-p16-c64  -> bench/results/grid ========
+stopped every arm except P-opt
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-opt
+OK   only P-opt is live
+P-opt  d64-p16-c64        1,248,212.08 ops/s  p50   0.815  p99   0.903  p99.9    1.095  hit 17.02%
+raw:  bench/results/grid/2026-08-05-P-opt-d64-p16-c64.txt
+json: bench/results/grid/2026-08-05-P-opt-d64-p16-c64.json
+
+======== 23:32:36Z  P-opt  d1024-p1-c1  -> bench/results/grid ========
+stopped every arm except P-opt
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-opt
+OK   only P-opt is live
+P-opt  d1024-p1-c1           26,945.73 ops/s  p50   0.039  p99   0.047  p99.9    0.063  hit 45.33%
+raw:  bench/results/grid/2026-08-05-P-opt-d1024-p1-c1.txt
+json: bench/results/grid/2026-08-05-P-opt-d1024-p1-c1.json
+
+======== 23:35:51Z  P-opt  d1024-p1-c8  -> bench/results/grid ========
+stopped every arm except P-opt
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-opt
+OK   only P-opt is live
+P-opt  d1024-p1-c8           99,272.04 ops/s  p50   0.087  p99   0.095  p99.9    0.111  hit 17.04%
+raw:  bench/results/grid/2026-08-05-P-opt-d1024-p1-c8.txt
+json: bench/results/grid/2026-08-05-P-opt-d1024-p1-c8.json
+
+======== 23:39:02Z  P-opt  d1024-p1-c64  -> bench/results/grid ========
+stopped every arm except P-opt
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-opt
+OK   only P-opt is live
+P-opt  d1024-p1-c64         102,218.15 ops/s  p50   0.631  p99   0.687  p99.9    0.783  hit  5.14%
+raw:  bench/results/grid/2026-08-05-P-opt-d1024-p1-c64.txt
+json: bench/results/grid/2026-08-05-P-opt-d1024-p1-c64.json
+
+======== 23:42:12Z  P-opt  d1024-p16-c1  -> bench/results/grid ========
+stopped every arm except P-opt
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-opt
+OK   only P-opt is live
+P-opt  d1024-p16-c1         287,151.75 ops/s  p50   0.055  p99   0.079  p99.9    0.095  hit 35.63%
+raw:  bench/results/grid/2026-08-05-P-opt-d1024-p16-c1.txt
+json: bench/results/grid/2026-08-05-P-opt-d1024-p16-c1.json
+
+======== 23:45:20Z  P-opt  d1024-p16-c8  -> bench/results/grid ========
+stopped every arm except P-opt
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-opt
+OK   only P-opt is live
+P-opt  d1024-p16-c8         423,351.18 ops/s  p50   0.303  p99   0.343  p99.9    0.383  hit 39.17%
+raw:  bench/results/grid/2026-08-05-P-opt-d1024-p16-c8.txt
+json: bench/results/grid/2026-08-05-P-opt-d1024-p16-c8.json
+
+======== 23:48:29Z  P-opt  d1024-p16-c64  -> bench/results/grid ========
+stopped every arm except P-opt
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-opt
+OK   only P-opt is live
+P-opt  d1024-p16-c64        481,074.65 ops/s  p50   2.175  p99   2.431  p99.9    3.855  hit  9.45%
+raw:  bench/results/grid/2026-08-05-P-opt-d1024-p16-c64.txt
+json: bench/results/grid/2026-08-05-P-opt-d1024-p16-c64.json
+
+======== 23:54:39Z  R-def  d64-p1-c1  -> bench/results/grid ========
+stopped every arm except R-def
+OK   only R-def is live
+R-def  d64-p1-c1             26,756.07 ops/s  p50   0.039  p99   0.047  p99.9    0.087  hit 48.89%
+raw:  bench/results/grid/2026-08-05-R-def-d64-p1-c1.txt
+json: bench/results/grid/2026-08-05-R-def-d64-p1-c1.json
+
+======== 23:57:51Z  R-def  d64-p1-c8  -> bench/results/grid ========
+stopped every arm except R-def
+OK   only R-def is live
+R-def  d64-p1-c8             94,095.86 ops/s  p50   0.087  p99   0.119  p99.9    0.167  hit 16.77%
+raw:  bench/results/grid/2026-08-05-R-def-d64-p1-c8.txt
+json: bench/results/grid/2026-08-05-R-def-d64-p1-c8.json
+
+======== 00:00:58Z  R-def  d64-p1-c64  -> bench/results/grid ========
+stopped every arm except R-def
+OK   only R-def is live
+R-def  d64-p1-c64            98,159.07 ops/s  p50   0.639  p99   1.239  p99.9    1.319  hit  5.23%
+raw:  bench/results/grid/2026-08-06-R-def-d64-p1-c64.txt
+json: bench/results/grid/2026-08-06-R-def-d64-p1-c64.json
+
+======== 00:04:06Z  R-def  d64-p16-c1  -> bench/results/grid ========
+stopped every arm except R-def
+OK   only R-def is live
+R-def  d64-p16-c1           271,785.49 ops/s  p50   0.055  p99   0.071  p99.9    0.119  hit 88.21%
+raw:  bench/results/grid/2026-08-06-R-def-d64-p16-c1.txt
+json: bench/results/grid/2026-08-06-R-def-d64-p16-c1.json
+
+======== 00:07:11Z  R-def  d64-p16-c8  -> bench/results/grid ========
+stopped every arm except R-def
+OK   only R-def is live
+R-def  d64-p16-c8           784,850.87 ops/s  p50   0.159  p99   0.231  p99.9    0.439  hit 35.96%
+raw:  bench/results/grid/2026-08-06-R-def-d64-p16-c8.txt
+json: bench/results/grid/2026-08-06-R-def-d64-p16-c8.json
+
+======== 00:10:17Z  R-def  d64-p16-c64  -> bench/results/grid ========
+stopped every arm except R-def
+OK   only R-def is live
+R-def  d64-p16-c64        1,026,203.29 ops/s  p50   0.951  p99   1.815  p99.9    2.047  hit 14.47%
+raw:  bench/results/grid/2026-08-06-R-def-d64-p16-c64.txt
+json: bench/results/grid/2026-08-06-R-def-d64-p16-c64.json
+
+======== 00:13:22Z  R-def  d1024-p1-c1  -> bench/results/grid ========
+stopped every arm except R-def
+OK   only R-def is live
+R-def  d1024-p1-c1           25,681.91 ops/s  p50   0.039  p99   0.055  p99.9    0.087  hit 48.35%
+raw:  bench/results/grid/2026-08-06-R-def-d1024-p1-c1.txt
+json: bench/results/grid/2026-08-06-R-def-d1024-p1-c1.json
+
+======== 00:16:35Z  R-def  d1024-p1-c8  -> bench/results/grid ========
+stopped every arm except R-def
+OK   only R-def is live
+R-def  d1024-p1-c8           94,076.80 ops/s  p50   0.087  p99   0.119  p99.9    0.159  hit 16.60%
+raw:  bench/results/grid/2026-08-06-R-def-d1024-p1-c8.txt
+json: bench/results/grid/2026-08-06-R-def-d1024-p1-c8.json
+
+======== 00:19:43Z  R-def  d1024-p1-c64  -> bench/results/grid ========
+stopped every arm except R-def
+OK   only R-def is live
+R-def  d1024-p1-c64         105,303.69 ops/s  p50   0.599  p99   1.143  p99.9    1.247  hit  4.41%
+raw:  bench/results/grid/2026-08-06-R-def-d1024-p1-c64.txt
+json: bench/results/grid/2026-08-06-R-def-d1024-p1-c64.json
+
+======== 00:22:49Z  R-def  d1024-p16-c1  -> bench/results/grid ========
+stopped every arm except R-def
+OK   only R-def is live
+R-def  d1024-p16-c1         282,136.86 ops/s  p50   0.063  p99   0.087  p99.9    0.111  hit 89.40%
+raw:  bench/results/grid/2026-08-06-R-def-d1024-p16-c1.txt
+json: bench/results/grid/2026-08-06-R-def-d1024-p16-c1.json
+
+======== 00:25:54Z  R-def  d1024-p16-c8  -> bench/results/grid ========
+stopped every arm except R-def
+OK   only R-def is live
+R-def  d1024-p16-c8         430,549.21 ops/s  p50   0.295  p99   0.335  p99.9    0.551  hit 41.55%
+raw:  bench/results/grid/2026-08-06-R-def-d1024-p16-c8.txt
+json: bench/results/grid/2026-08-06-R-def-d1024-p16-c8.json
+
+======== 00:28:59Z  R-def  d1024-p16-c64  -> bench/results/grid ========
+stopped every arm except R-def
+OK   only R-def is live
+R-def  d1024-p16-c64        483,964.23 ops/s  p50   2.143  p99   2.559  p99.9    4.015  hit  9.63%
+raw:  bench/results/grid/2026-08-06-R-def-d1024-p16-c64.txt
+json: bench/results/grid/2026-08-06-R-def-d1024-p16-c64.json
+
+======== 00:35:06Z  R-opt  d64-p1-c1  -> bench/results/grid ========
+stopped every arm except R-opt
+OK   only R-opt is live
+R-opt  d64-p1-c1             27,646.63 ops/s  p50   0.039  p99   0.047  p99.9    0.071  hit 48.69%
+raw:  bench/results/grid/2026-08-06-R-opt-d64-p1-c1.txt
+json: bench/results/grid/2026-08-06-R-opt-d64-p1-c1.json
+
+======== 00:38:18Z  R-opt  d64-p1-c8  -> bench/results/grid ========
+stopped every arm except R-opt
+OK   only R-opt is live
+R-opt  d64-p1-c8             99,215.28 ops/s  p50   0.079  p99   0.111  p99.9    0.143  hit 16.97%
+raw:  bench/results/grid/2026-08-06-R-opt-d64-p1-c8.txt
+json: bench/results/grid/2026-08-06-R-opt-d64-p1-c8.json
+
+======== 00:41:25Z  R-opt  d64-p1-c64  -> bench/results/grid ========
+stopped every arm except R-opt
+OK   only R-opt is live
+R-opt  d64-p1-c64           103,409.89 ops/s  p50   0.607  p99   1.167  p99.9    1.263  hit  5.12%
+raw:  bench/results/grid/2026-08-06-R-opt-d64-p1-c64.txt
+json: bench/results/grid/2026-08-06-R-opt-d64-p1-c64.json
+
+======== 00:44:33Z  R-opt  d64-p16-c1  -> bench/results/grid ========
+stopped every arm except R-opt
+OK   only R-opt is live
+R-opt  d64-p16-c1           296,869.43 ops/s  p50   0.055  p99   0.071  p99.9    0.103  hit 89.72%
+raw:  bench/results/grid/2026-08-06-R-opt-d64-p16-c1.txt
+json: bench/results/grid/2026-08-06-R-opt-d64-p16-c1.json
+
+======== 00:47:38Z  R-opt  d64-p16-c8  -> bench/results/grid ========
+stopped every arm except R-opt
+OK   only R-opt is live
+R-opt  d64-p16-c8           929,833.63 ops/s  p50   0.135  p99   0.191  p99.9    0.351  hit 65.30%
+raw:  bench/results/grid/2026-08-06-R-opt-d64-p16-c8.txt
+json: bench/results/grid/2026-08-06-R-opt-d64-p16-c8.json
+
+======== 00:50:43Z  R-opt  d64-p16-c64  -> bench/results/grid ========
+stopped every arm except R-opt
+OK   only R-opt is live
+R-opt  d64-p16-c64        1,091,321.49 ops/s  p50   0.903  p99   1.703  p99.9    1.871  hit  8.21%
+raw:  bench/results/grid/2026-08-06-R-opt-d64-p16-c64.txt
+json: bench/results/grid/2026-08-06-R-opt-d64-p16-c64.json
+
+======== 00:53:48Z  R-opt  d1024-p1-c1  -> bench/results/grid ========
+stopped every arm except R-opt
+OK   only R-opt is live
+R-opt  d1024-p1-c1           26,733.43 ops/s  p50   0.039  p99   0.047  p99.9    0.071  hit 40.94%
+raw:  bench/results/grid/2026-08-06-R-opt-d1024-p1-c1.txt
+json: bench/results/grid/2026-08-06-R-opt-d1024-p1-c1.json
+
+======== 00:57:00Z  R-opt  d1024-p1-c8  -> bench/results/grid ========
+stopped every arm except R-opt
+OK   only R-opt is live
+R-opt  d1024-p1-c8           98,422.18 ops/s  p50   0.079  p99   0.111  p99.9    0.151  hit 16.98%
+raw:  bench/results/grid/2026-08-06-R-opt-d1024-p1-c8.txt
+json: bench/results/grid/2026-08-06-R-opt-d1024-p1-c8.json
+
+======== 01:00:07Z  R-opt  d1024-p1-c64  -> bench/results/grid ========
+stopped every arm except R-opt
+OK   only R-opt is live
+R-opt  d1024-p1-c64         104,968.56 ops/s  p50   0.599  p99   1.151  p99.9    1.263  hit  5.09%
+raw:  bench/results/grid/2026-08-06-R-opt-d1024-p1-c64.txt
+json: bench/results/grid/2026-08-06-R-opt-d1024-p1-c64.json
+
+======== 01:03:14Z  R-opt  d1024-p16-c1  -> bench/results/grid ========
+stopped every arm except R-opt
+OK   only R-opt is live
+R-opt  d1024-p16-c1         335,932.71 ops/s  p50   0.047  p99   0.071  p99.9    0.095  hit 35.38%
+raw:  bench/results/grid/2026-08-06-R-opt-d1024-p16-c1.txt
+json: bench/results/grid/2026-08-06-R-opt-d1024-p16-c1.json
+
+======== 01:06:19Z  R-opt  d1024-p16-c8  -> bench/results/grid ========
+stopped every arm except R-opt
+OK   only R-opt is live
+R-opt  d1024-p16-c8         415,101.38 ops/s  p50   0.311  p99   0.367  p99.9    0.567  hit 34.59%
+raw:  bench/results/grid/2026-08-06-R-opt-d1024-p16-c8.txt
+json: bench/results/grid/2026-08-06-R-opt-d1024-p16-c8.json
+
+======== 01:09:24Z  R-opt  d1024-p16-c64  -> bench/results/grid ========
+stopped every arm except R-opt
+OK   only R-opt is live
+R-opt  d1024-p16-c64        484,443.80 ops/s  p50   2.175  p99   2.591  p99.9    4.575  hit  9.79%
+raw:  bench/results/grid/2026-08-06-R-opt-d1024-p16-c64.txt
+json: bench/results/grid/2026-08-06-R-opt-d1024-p16-c64.json
+
+======== 01:15:32Z  V-opt  d64-p1-c1  -> bench/results/grid ========
+stopped every arm except V-opt
+OK   only V-opt is live
+V-opt  d64-p1-c1             26,564.30 ops/s  p50   0.039  p99   0.047  p99.9    0.079  hit 48.44%
+raw:  bench/results/grid/2026-08-06-V-opt-d64-p1-c1.txt
+json: bench/results/grid/2026-08-06-V-opt-d64-p1-c1.json
+
+======== 01:18:44Z  V-opt  d64-p1-c8  -> bench/results/grid ========
+stopped every arm except V-opt
+OK   only V-opt is live
+V-opt  d64-p1-c8             94,619.41 ops/s  p50   0.087  p99   0.119  p99.9    0.143  hit 16.51%
+raw:  bench/results/grid/2026-08-06-V-opt-d64-p1-c8.txt
+json: bench/results/grid/2026-08-06-V-opt-d64-p1-c8.json
+
+======== 01:21:51Z  V-opt  d64-p1-c64  -> bench/results/grid ========
+stopped every arm except V-opt
+OK   only V-opt is live
+V-opt  d64-p1-c64           104,075.39 ops/s  p50   0.607  p99   1.167  p99.9    1.271  hit  4.44%
+raw:  bench/results/grid/2026-08-06-V-opt-d64-p1-c64.txt
+json: bench/results/grid/2026-08-06-V-opt-d64-p1-c64.json
+
+======== 01:24:57Z  V-opt  d64-p16-c1  -> bench/results/grid ========
+stopped every arm except V-opt
+OK   only V-opt is live
+V-opt  d64-p16-c1           298,232.43 ops/s  p50   0.055  p99   0.071  p99.9    0.103  hit 89.62%
+raw:  bench/results/grid/2026-08-06-V-opt-d64-p16-c1.txt
+json: bench/results/grid/2026-08-06-V-opt-d64-p16-c1.json
+
+======== 01:28:02Z  V-opt  d64-p16-c8  -> bench/results/grid ========
+stopped every arm except V-opt
+OK   only V-opt is live
+V-opt  d64-p16-c8           943,863.40 ops/s  p50   0.135  p99   0.183  p99.9    0.223  hit 65.67%
+raw:  bench/results/grid/2026-08-06-V-opt-d64-p16-c8.txt
+json: bench/results/grid/2026-08-06-V-opt-d64-p16-c8.json
+
+======== 01:31:07Z  V-opt  d64-p16-c64  -> bench/results/grid ========
+stopped every arm except V-opt
+OK   only V-opt is live
+V-opt  d64-p16-c64        1,112,940.46 ops/s  p50   0.871  p99   1.687  p99.9    1.943  hit 15.36%
+raw:  bench/results/grid/2026-08-06-V-opt-d64-p16-c64.txt
+json: bench/results/grid/2026-08-06-V-opt-d64-p16-c64.json
+
+======== 01:34:12Z  V-opt  d1024-p1-c1  -> bench/results/grid ========
+stopped every arm except V-opt
+OK   only V-opt is live
+V-opt  d1024-p1-c1           27,515.34 ops/s  p50   0.039  p99   0.047  p99.9    0.071  hit 40.79%
+raw:  bench/results/grid/2026-08-06-V-opt-d1024-p1-c1.txt
+json: bench/results/grid/2026-08-06-V-opt-d1024-p1-c1.json
+
+======== 01:37:24Z  V-opt  d1024-p1-c8  -> bench/results/grid ========
+stopped every arm except V-opt
+OK   only V-opt is live
+V-opt  d1024-p1-c8           98,056.07 ops/s  p50   0.079  p99   0.111  p99.9    0.135  hit 16.88%
+raw:  bench/results/grid/2026-08-06-V-opt-d1024-p1-c8.txt
+json: bench/results/grid/2026-08-06-V-opt-d1024-p1-c8.json
+
+======== 01:40:31Z  V-opt  d1024-p1-c64  -> bench/results/grid ========
+stopped every arm except V-opt
+OK   only V-opt is live
+V-opt  d1024-p1-c64         103,957.39 ops/s  p50   0.607  p99   1.159  p99.9    1.263  hit  5.11%
+raw:  bench/results/grid/2026-08-06-V-opt-d1024-p1-c64.txt
+json: bench/results/grid/2026-08-06-V-opt-d1024-p1-c64.json
+
+======== 01:43:37Z  V-opt  d1024-p16-c1  -> bench/results/grid ========
+stopped every arm except V-opt
+OK   only V-opt is live
+V-opt  d1024-p16-c1         342,197.59 ops/s  p50   0.047  p99   0.071  p99.9    0.095  hit 35.65%
+raw:  bench/results/grid/2026-08-06-V-opt-d1024-p16-c1.txt
+json: bench/results/grid/2026-08-06-V-opt-d1024-p16-c1.json
+
+======== 01:46:42Z  V-opt  d1024-p16-c8  -> bench/results/grid ========
+stopped every arm except V-opt
+OK   only V-opt is live
+V-opt  d1024-p16-c8         416,978.24 ops/s  p50   0.311  p99   0.359  p99.9    0.407  hit 34.61%
+raw:  bench/results/grid/2026-08-06-V-opt-d1024-p16-c8.txt
+json: bench/results/grid/2026-08-06-V-opt-d1024-p16-c8.json
+
+======== 01:49:47Z  V-opt  d1024-p16-c64  -> bench/results/grid ========
+stopped every arm except V-opt
+OK   only V-opt is live
+V-opt  d1024-p16-c64        478,609.58 ops/s  p50   2.207  p99   2.463  p99.9    4.127  hit  9.72%
+raw:  bench/results/grid/2026-08-06-V-opt-d1024-p16-c64.txt
+json: bench/results/grid/2026-08-06-V-opt-d1024-p16-c64.json
+
+======== 01:55:55Z  K-pg  d64-p1-c1  -> bench/results/grid ========
+stopped every arm except K-pg
+OK   server reports shared_preload_libraries='(empty)' — correct for K-pg
+OK   only K-pg is live
+K-pg   d64-p1-c1              3,400.01 ops/s  p50   0.271  p99   0.583  p99.9    0.983  hit 98.59%
+raw:  bench/results/grid/2026-08-06-K-pg-d64-p1-c1.txt
+json: bench/results/grid/2026-08-06-K-pg-d64-p1-c1.json
+
+======== 02:00:41Z  K-pg  d64-p1-c8  -> bench/results/grid ========
+stopped every arm except K-pg
+OK   server reports shared_preload_libraries='(empty)' — correct for K-pg
+OK   only K-pg is live
+K-pg   d64-p1-c8             10,185.90 ops/s  p50   0.735  p99   1.695  p99.9    3.311  hit 36.09%
+raw:  bench/results/grid/2026-08-06-K-pg-d64-p1-c8.txt
+json: bench/results/grid/2026-08-06-K-pg-d64-p1-c8.json
+
+======== 02:04:21Z  K-pg  d64-p1-c64  -> bench/results/grid ========
+stopped every arm except K-pg
+OK   server reports shared_preload_libraries='(empty)' — correct for K-pg
+OK   only K-pg is live
+K-pg   d64-p1-c64            10,213.86 ops/s  p50   4.287  p99  28.543  p99.9   42.495  hit 33.01%
+raw:  bench/results/grid/2026-08-06-K-pg-d64-p1-c64.txt
+json: bench/results/grid/2026-08-06-K-pg-d64-p1-c64.json
+
+======== 02:08:01Z  K-pg  d64-p16-c1  -> bench/results/grid ========
+stopped every arm except K-pg
+OK   server reports shared_preload_libraries='(empty)' — correct for K-pg
+OK   only K-pg is live
+K-pg   d64-p16-c1             4,115.70 ops/s  p50   3.871  p99   5.567  p99.9    7.711  hit 86.34%
+raw:  bench/results/grid/2026-08-06-K-pg-d64-p16-c1.txt
+json: bench/results/grid/2026-08-06-K-pg-d64-p16-c1.json
+
+======== 02:12:37Z  K-pg  d64-p16-c8  -> bench/results/grid ========
+stopped every arm except K-pg
+OK   server reports shared_preload_libraries='(empty)' — correct for K-pg
+OK   only K-pg is live
+K-pg   d64-p16-c8            11,060.68 ops/s  p50  11.583  p99  16.255  p99.9   19.327  hit 33.65%
+raw:  bench/results/grid/2026-08-06-K-pg-d64-p16-c8.txt
+json: bench/results/grid/2026-08-06-K-pg-d64-p16-c8.json
+
+======== 02:16:14Z  K-pg  d64-p16-c64  -> bench/results/grid ========
+stopped every arm except K-pg
+OK   server reports shared_preload_libraries='(empty)' — correct for K-pg
+OK   only K-pg is live
+K-pg   d64-p16-c64           11,171.15 ops/s  p50  90.111  p99 156.671  p99.9  188.415  hit 30.20%
+raw:  bench/results/grid/2026-08-06-K-pg-d64-p16-c64.txt
+json: bench/results/grid/2026-08-06-K-pg-d64-p16-c64.json
+
+======== 02:19:56Z  K-pg  d1024-p1-c1  -> bench/results/grid ========
+stopped every arm except K-pg
+OK   server reports shared_preload_libraries='(empty)' — correct for K-pg
+OK   only K-pg is live
+K-pg   d1024-p1-c1            3,312.07 ops/s  p50   0.279  p99   0.599  p99.9    1.679  hit 100.00%
+raw:  bench/results/grid/2026-08-06-K-pg-d1024-p1-c1.txt
+json: bench/results/grid/2026-08-06-K-pg-d1024-p1-c1.json
+
+======== 02:24:45Z  K-pg  d1024-p1-c8  -> bench/results/grid ========
+stopped every arm except K-pg
+OK   server reports shared_preload_libraries='(empty)' — correct for K-pg
+OK   only K-pg is live
+K-pg   d1024-p1-c8            9,849.44 ops/s  p50   0.759  p99   1.751  p99.9    3.599  hit 36.90%
+raw:  bench/results/grid/2026-08-06-K-pg-d1024-p1-c8.txt
+json: bench/results/grid/2026-08-06-K-pg-d1024-p1-c8.json
+
+======== 02:28:26Z  K-pg  d1024-p1-c64  -> bench/results/grid ========
+stopped every arm except K-pg
+OK   server reports shared_preload_libraries='(empty)' — correct for K-pg
+OK   only K-pg is live
+K-pg   d1024-p1-c64          10,164.50 ops/s  p50   4.319  p99  28.799  p99.9   43.263  hit 33.17%
+raw:  bench/results/grid/2026-08-06-K-pg-d1024-p1-c64.txt
+json: bench/results/grid/2026-08-06-K-pg-d1024-p1-c64.json
+
+======== 02:32:07Z  K-pg  d1024-p16-c1  -> bench/results/grid ========
+stopped every arm except K-pg
+OK   server reports shared_preload_libraries='(empty)' — correct for K-pg
+OK   only K-pg is live
+K-pg   d1024-p16-c1           3,916.26 ops/s  p50   4.063  p99   7.007  p99.9    8.575  hit 89.29%
+raw:  bench/results/grid/2026-08-06-K-pg-d1024-p16-c1.txt
+json: bench/results/grid/2026-08-06-K-pg-d1024-p16-c1.json
+
+======== 02:36:48Z  K-pg  d1024-p16-c8  -> bench/results/grid ========
+stopped every arm except K-pg
+OK   server reports shared_preload_libraries='(empty)' — correct for K-pg
+OK   only K-pg is live
+K-pg   d1024-p16-c8          10,639.27 ops/s  p50  12.031  p99  16.383  p99.9   23.039  hit 34.77%
+raw:  bench/results/grid/2026-08-06-K-pg-d1024-p16-c8.txt
+json: bench/results/grid/2026-08-06-K-pg-d1024-p16-c8.json
+
+======== 02:40:29Z  K-pg  d1024-p16-c64  -> bench/results/grid ========
+stopped every arm except K-pg
+OK   server reports shared_preload_libraries='(empty)' — correct for K-pg
+OK   only K-pg is live
+K-pg   d1024-p16-c64         10,883.06 ops/s  p50  92.159  p99 162.815  p99.9  201.727  hit 31.06%
+raw:  bench/results/grid/2026-08-06-K-pg-d1024-p16-c64.txt
+json: bench/results/grid/2026-08-06-K-pg-d1024-p16-c64.json
+
+### MAIN GRID DONE 2026-08-06T02:44:12Z — attempted=72 voided=0 unpublishable=0
+### ANOMALY SET — 64 B peak, --require-saturation enforced
+
+======== 02:44:12Z  P-opt  d64-p16-c64  -> bench/results/grid-anomaly ========
+stopped every arm except P-opt
+OK   server reports shared_preload_libraries='pg_resp.so' — correct for P-opt
+OK   only P-opt is live
+P-opt  d64-p16-c64        1,203,399.60 ops/s  p50   0.855  p99   0.991  p99.9    1.207  hit 16.54%
+raw:  bench/results/grid-anomaly/2026-08-06-P-opt-d64-p16-c64.txt
+json: bench/results/grid-anomaly/2026-08-06-P-opt-d64-p16-c64.json
+
+======== 02:47:20Z  R-opt  d64-p16-c64  -> bench/results/grid-anomaly ========
+stopped every arm except R-opt
+OK   only R-opt is live
+R-opt  d64-p16-c64        1,095,843.31 ops/s  p50   0.895  p99   1.703  p99.9    1.911  hit 15.36%
+raw:  bench/results/grid-anomaly/2026-08-06-R-opt-d64-p16-c64.txt
+json: bench/results/grid-anomaly/2026-08-06-R-opt-d64-p16-c64.json
+### SUPPLEMENTARY — R-opt with io-threads=4 (robustness check, NOT a ranked arm)
+
+======== 02:50:25Z  R-opt  d64-p16-c64  -> bench/results/grid-supplementary ========
+stopped every arm except R-opt
+OK   only R-opt is live
+R-opt  d64-p16-c64        2,151,674.85 ops/s  p50   0.471  p99   0.671  p99.9    1.143  hit 27.58%
+raw:  bench/results/grid-supplementary/2026-08-06-R-opt-d64-p16-c64.txt
+json: bench/results/grid-supplementary/2026-08-06-R-opt-d64-p16-c64.json
+
+### GRID COMPLETE 2026-08-06T02:53:31Z — attempted=75 voided=0 unpublishable=0
+### cells on disk: 72 grid, 2 anomaly, 1 supplementary
+EXIT=0
