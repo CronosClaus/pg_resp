@@ -1,0 +1,21 @@
+=== W13 FULL REGRESSION SWEEP — 2026-08-06T08:40:07Z — HEAD 51f4a69 ===
+--- fast loop (PG-free crates) ---
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+test result: ok. 45 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 55 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+--- fmt + clippy ---
+fmt: clean
+clippy findings: 0
+--- harness golden tests ---
+Ran 8 tests in 0.324s
+
+OK
+--- slow loop: cargo pgrx test pg18 (crosses FFI) ---
+running 76 tests
+test result: ok. 76 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.64s
+running 0 tests
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+=== W13-DONE ===
